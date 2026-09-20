@@ -113,6 +113,8 @@ final class DashboardPage {
               .light.red { background: #FF5F57; } .light.red svg { color: #7d0000; }
               .light.yellow { background: #FEBC2E; } .light.yellow svg { color: #7a5200; }
               .light.green { background: #28C840; } .light.green svg { color: #0a4d16; }
+              .traffic-lights .light { transition: transform .1s; }
+              .traffic-lights .light:active { transform: scale(.82); }
               .chrome-title { position: absolute; left: 0; right: 0; text-align: center; font-size: 13px; font-weight: 600; color: var(--text-secondary); pointer-events: none; letter-spacing: -0.01em; }
 
               .app { flex: 1; display: flex; min-height: 0; }
@@ -135,7 +137,9 @@ final class DashboardPage {
               nav.tabs button { all: unset; cursor: pointer; position: relative; z-index: 1; padding: 9px 10px; border-radius: 8px; font-size: 13.5px; color: var(--text-secondary); display: flex; align-items: center; gap: 10px; transition: color .15s; }
               nav.tabs button:hover { color: var(--text-primary); }
               nav.tabs button.active { color: var(--brand-strong); font-weight: 600; }
-              nav.tabs button svg { width: 16px; height: 16px; flex: none; opacity: .85; }
+              nav.tabs button svg { width: 16px; height: 16px; flex: none; opacity: .85; transition: transform .18s var(--ease); }
+              nav.tabs button:hover svg { transform: scale(1.12); }
+              nav.tabs button.active svg { transform: scale(1.08); }
               .sidebar-foot { margin-top: auto; padding: 10px 8px 2px; font-size: 11px; line-height: 1.5; color: var(--text-muted); }
 
               .main { flex: 1; min-width: 0; padding: 26px 34px 60px; overflow-y: auto; scroll-behavior: smooth; }
@@ -158,7 +162,13 @@ final class DashboardPage {
               .kpi-row .kpi:nth-child(5) { animation-delay: .18s; } .kpi-row .kpi:nth-child(6) { animation-delay: .22s; }
               .kpi { border-radius: 14px; padding: 14px 16px; }
               .kpi .k { font-size: 10px; text-transform: uppercase; letter-spacing: .06em; color: var(--text-muted); margin-bottom: 9px; }
-              .kpi .v { font-size: 22px; font-weight: 700; letter-spacing: -0.02em; color: var(--text-primary); }
+              .kpi .v { font-size: 22px; font-weight: 700; letter-spacing: -0.02em; color: var(--text-primary); font-variant-numeric: tabular-nums; }
+              .kpi.flash { animation: kpiFlash .9s var(--ease); }
+              @keyframes kpiFlash {
+                0%   { box-shadow: var(--shadow-sm), 0 0 0 0 var(--brand-dim); }
+                30%  { box-shadow: var(--shadow-sm), 0 0 0 5px var(--brand-dim); }
+                100% { box-shadow: var(--shadow-sm), 0 0 0 0 rgba(10,132,255,0); }
+              }
 
               .card { border-radius: 18px; padding: 18px 20px; margin-bottom: 18px; }
               .card h2 { font-size: 12px; text-transform: uppercase; letter-spacing: .06em; color: var(--text-muted); margin: 0 0 14px; font-weight: 600; }
@@ -172,6 +182,12 @@ final class DashboardPage {
               tbody tr:last-child td { border-bottom: none; }
               tbody tr { transition: background .12s; }
               tbody tr:hover td { background: rgba(0,0,0,0.02); }
+              tbody tr.row-enter { animation: rowEnter .9s var(--ease); }
+              @keyframes rowEnter {
+                0%   { opacity: 0; background: var(--brand-dim); }
+                18%  { opacity: 1; }
+                100% { opacity: 1; background: transparent; }
+              }
               .cmd { color: var(--text-secondary); }
               code.pill { background: rgba(0,0,0,0.045); padding: 2px 7px; border-radius: 5px; font-size: 12px; color: var(--text-primary); }
 
@@ -207,6 +223,10 @@ final class DashboardPage {
               svg.spark { display: block; max-width: 100%; }
               .spark-legend { display: flex; gap: 18px; font-size: 12px; color: var(--text-secondary); }
               .spark-legend .sw { display: inline-block; width: 9px; height: 9px; border-radius: 2px; margin-right: 6px; vertical-align: -1px; }
+              .spark-dot { animation: sparkDotIn .35s var(--ease) both; animation-delay: .7s; transform-origin: center; transform-box: fill-box; }
+              @keyframes sparkDotIn { from { opacity: 0; transform: scale(0); } to { opacity: 1; transform: scale(1); } }
+              .spark-area { animation: sparkFadeIn .8s var(--ease) both; animation-delay: .15s; }
+              @keyframes sparkFadeIn { from { opacity: 0; } to { opacity: 1; } }
 
               @media (max-width: 780px) {
                 body { padding: 0; }
@@ -322,6 +342,37 @@ final class DashboardPage {
               const NODE_BADGE = { ALIVE: 'good', SUSPECT: 'warn', DEAD: 'crit', LEFT: 'muted' };
               let lastRuns = [];
               let lastStatus = null;
+              const seenKeys = { runs: new Set(), jobs: new Set(), nodes: new Set() };
+
+              /** Marks a table row as newly-seen (for a one-time "row-enter" glow-in animation) -- true only the first time this key is observed for this session. */
+              function isNewRow(table, key) {
+                if (seenKeys[table].has(key)) return false;
+                seenKeys[table].add(key);
+                return true;
+              }
+
+              /** Tweens an element's numeric text content from its previous value to `to` with an ease-out curve; snaps instantly on first paint (from == null). */
+              function animateNumber(el, from, to, duration, suffix) {
+                suffix = suffix || '';
+                if (from === to || from == null) { el.textContent = to + suffix; return; }
+                const start = performance.now();
+                function tick(now) {
+                  const t = Math.min(1, (now - start) / duration);
+                  const eased = 1 - Math.pow(1 - t, 3);
+                  el.textContent = Math.round(from + (to - from) * eased) + suffix;
+                  if (t < 1) requestAnimationFrame(tick);
+                }
+                requestAnimationFrame(tick);
+              }
+
+              /** Briefly pulses a KPI tile's border to draw the eye to a value that just changed. */
+              function flashKpi(el) {
+                const kpi = el.closest('.kpi');
+                if (!kpi) return;
+                kpi.classList.remove('flash');
+                void kpi.offsetWidth; // restart the animation even if it's still running
+                kpi.classList.add('flash');
+              }
 
               // ---- window chrome: scroll-edge effect on the title bar (a la macOS toolbars) ----
               document.getElementById('mainScroll').addEventListener('scroll', e => {
@@ -361,7 +412,7 @@ final class DashboardPage {
                 const nodes = await (await fetch('/api/nodes')).json();
                 document.getElementById('nodeCount').textContent = nodes.length;
                 document.querySelector('#nodesTable tbody').innerHTML = nodes.map(n => `
-                  <tr><td><strong>${esc(n.nodeId)}</strong></td><td class="mono cmd">${esc(n.address)}</td>
+                  <tr${isNewRow('nodes', n.nodeId) ? ' class="row-enter"' : ''}><td><strong>${esc(n.nodeId)}</strong></td><td class="mono cmd">${esc(n.address)}</td>
                   <td><span class="badge ${NODE_BADGE[n.state] || 'muted'}"><span class="d"></span>${esc(n.state)}</span></td>
                   <td>${n.incarnation}</td></tr>
                 `).join('') || '<tr><td colspan="4" class="empty">no nodes known yet</td></tr>';
@@ -374,7 +425,8 @@ final class DashboardPage {
                   const lastRun = lr
                     ? `<span class="badge ${lr.success ? 'good' : 'crit'}"><span class="d"></span>${lr.success ? 'OK' : 'FAIL'}</span> <span class="cmd">${fmtTime(lr.timestampMillis)}</span>`
                     : '<span class="cmd">never</span>';
-                  return `<tr><td><code class="pill">${esc(j.id)}</code></td><td class="mono cmd">${esc(j.schedule)}</td><td class="cmd">${esc(j.command.join(' '))}</td>
+                  const enter = isNewRow('jobs', j.id) ? ' class="row-enter"' : '';
+                  return `<tr${enter}><td><code class="pill">${esc(j.id)}</code></td><td class="mono cmd">${esc(j.schedule)}</td><td class="cmd">${esc(j.command.join(' '))}</td>
                     <td>${j.owner ? `<span class="badge brand"><span class="d"></span>${esc(j.owner)}</span>` : '&ndash;'}</td>
                     <td>${j.enabled ? 'yes' : 'no'}</td><td class="cmd">${esc(j.overlapPolicy)}</td>
                     <td>${lastRun}</td>
@@ -384,45 +436,98 @@ final class DashboardPage {
 
               async function loadRuns() {
                 lastRuns = await (await fetch('/api/runs')).json();
-                document.querySelector('#runsTable tbody').innerHTML = lastRuns.slice(0, 40).map(r => `
-                  <tr><td class="cmd">${fmtTime(r.timestampMillis)}</td><td><code class="pill">${esc(r.jobId)}</code></td><td>${esc(r.nodeId)}</td>
+                document.querySelector('#runsTable tbody').innerHTML = lastRuns.slice(0, 40).map(r => {
+                  const key = r.jobId + '@' + r.nodeId + '@' + r.timestampMillis;
+                  const enter = isNewRow('runs', key) ? ' class="row-enter"' : '';
+                  return `<tr${enter}><td class="cmd">${fmtTime(r.timestampMillis)}</td><td><code class="pill">${esc(r.jobId)}</code></td><td>${esc(r.nodeId)}</td>
                   <td><span class="badge ${r.success ? 'good' : 'crit'}"><span class="d"></span>${r.success ? 'OK' : 'FAIL'}</span></td>
-                  <td class="cmd">${r.exitCode ?? '&ndash;'}</td><td class="cmd">${r.durationMillis}ms</td></tr>
-                `).join('') || '<tr><td colspan="6" class="empty">no runs recorded yet</td></tr>';
+                  <td class="cmd">${r.exitCode ?? '&ndash;'}</td><td class="cmd">${r.durationMillis}ms</td></tr>`;
+                }).join('') || '<tr><td colspan="6" class="empty">no runs recorded yet</td></tr>';
                 renderKpis();
                 renderSpark();
               }
 
               function loadAll() { loadStatus(); loadNodes(); loadJobs(); loadRuns(); }
 
-              // ---- KPI tiles ----
-              function renderKpis() {
-                if (!lastStatus) return;
-                const role = lastStatus.raft.role;
-                const roleBadge = role === 'LEADER' ? 'brand' : (role === 'CANDIDATE' ? 'warn' : 'muted');
-                const recent = lastRuns.slice(0, 50);
-                const successRate = recent.length ? Math.round(100 * recent.filter(r => r.success).length / recent.length) : null;
+              // ---- KPI tiles: built once, then updated in place so values can tween/flash instead of hard-snapping on every live update ----
+              let kpiBuilt = false;
+              const kpiPrev = { role: null, term: null, leaderId: null, ringNodes: null, activeJobs: null, successRate: null };
+
+              function buildKpiSkeleton() {
+                if (kpiBuilt) return;
                 document.getElementById('kpiRow').innerHTML = `
-                  <div class="kpi"><div class="k">Role</div><div class="v"><span class="badge ${roleBadge}"><span class="d"></span>${esc(role)}</span></div></div>
-                  <div class="kpi"><div class="k">Term</div><div class="v">${lastStatus.raft.term}</div></div>
-                  <div class="kpi"><div class="k">Leader</div><div class="v">${esc(lastStatus.raft.leaderId ?? '&ndash;')}</div></div>
-                  <div class="kpi"><div class="k">Ring Nodes</div><div class="v">${lastStatus.ring.physicalNodeCount}</div></div>
-                  <div class="kpi"><div class="k">Active Jobs</div><div class="v">${lastStatus.jobCount}</div></div>
-                  <div class="kpi"><div class="k">Success Rate</div><div class="v">${successRate === null ? '&ndash;' : successRate + '%'}</div>
-                    ${successRate === null ? '' : `<div class="meter"><span style="width:${successRate}%;background:var(--good)"></span><span style="width:${100 - successRate}%;background:var(--critical)"></span></div>`}
+                  <div class="kpi"><div class="k">Role</div><div class="v" id="kpi-role">&ndash;</div></div>
+                  <div class="kpi"><div class="k">Term</div><div class="v" id="kpi-term">0</div></div>
+                  <div class="kpi"><div class="k">Leader</div><div class="v" id="kpi-leader">&ndash;</div></div>
+                  <div class="kpi"><div class="k">Ring Nodes</div><div class="v" id="kpi-ring">0</div></div>
+                  <div class="kpi"><div class="k">Active Jobs</div><div class="v" id="kpi-jobs">0</div></div>
+                  <div class="kpi"><div class="k">Success Rate</div><div class="v" id="kpi-success">&ndash;</div>
+                    <div class="meter"><span id="meter-good" style="width:0%;background:var(--good)"></span><span id="meter-bad" style="width:0%;background:var(--critical)"></span></div>
                   </div>
                 `;
+                kpiBuilt = true;
+              }
+
+              function renderKpis() {
+                if (!lastStatus) return;
+                buildKpiSkeleton();
+
+                const role = lastStatus.raft.role;
+                if (kpiPrev.role !== role) {
+                  const roleBadge = role === 'LEADER' ? 'brand' : (role === 'CANDIDATE' ? 'warn' : 'muted');
+                  const el = document.getElementById('kpi-role');
+                  el.innerHTML = `<span class="badge ${roleBadge}"><span class="d"></span>${esc(role)}</span>`;
+                  if (kpiPrev.role !== null) flashKpi(el);
+                  kpiPrev.role = role;
+                }
+
+                animateNumber(document.getElementById('kpi-term'), kpiPrev.term, lastStatus.raft.term, 500);
+                if (kpiPrev.term !== null && kpiPrev.term !== lastStatus.raft.term) flashKpi(document.getElementById('kpi-term'));
+                kpiPrev.term = lastStatus.raft.term;
+
+                const leaderId = lastStatus.raft.leaderId ?? '–';
+                if (kpiPrev.leaderId !== leaderId) {
+                  const el = document.getElementById('kpi-leader');
+                  el.textContent = leaderId;
+                  if (kpiPrev.leaderId !== null) flashKpi(el);
+                  kpiPrev.leaderId = leaderId;
+                }
+
+                animateNumber(document.getElementById('kpi-ring'), kpiPrev.ringNodes, lastStatus.ring.physicalNodeCount, 500);
+                kpiPrev.ringNodes = lastStatus.ring.physicalNodeCount;
+
+                animateNumber(document.getElementById('kpi-jobs'), kpiPrev.activeJobs, lastStatus.jobCount, 500);
+                kpiPrev.activeJobs = lastStatus.jobCount;
+
+                const recent = lastRuns.slice(0, 50);
+                const successRate = recent.length ? Math.round(100 * recent.filter(r => r.success).length / recent.length) : null;
+                const successEl = document.getElementById('kpi-success');
+                if (successRate === null) {
+                  successEl.textContent = '–';
+                } else {
+                  animateNumber(successEl, kpiPrev.successRate === null ? 0 : kpiPrev.successRate, successRate, 500, '%');
+                }
+                document.getElementById('meter-good').style.width = (successRate ?? 0) + '%';
+                document.getElementById('meter-bad').style.width = (100 - (successRate ?? 0)) + '%';
+                kpiPrev.successRate = successRate;
               }
 
               // ---- sparkline (recent run durations; failed runs marked) ----
+              let lastSparkKey = null;
+
               function renderSpark() {
                 const svg = document.getElementById('sparkSvg');
                 const W = 620, H = 110, PAD = 12;
                 const data = lastRuns.slice(0, 40).slice().reverse();
                 if (data.length < 2) {
                   svg.innerHTML = `<text x="${W / 2}" y="${H / 2}" fill="var(--text-muted)" font-size="12" text-anchor="middle">not enough runs yet</text>`;
+                  lastSparkKey = null;
                   return;
                 }
+                const sparkKey = data.map(r => r.jobId + '@' + r.nodeId + '@' + r.timestampMillis).join('|');
+                const isFreshData = sparkKey !== lastSparkKey;
+                lastSparkKey = sparkKey;
+
                 const maxDur = Math.max.apply(null, data.map(r => r.durationMillis).concat([1]));
                 const stepX = (W - PAD * 2) / (data.length - 1);
                 const points = data.map((r, i) => ({
@@ -433,13 +538,25 @@ final class DashboardPage {
                 const line = points.map((p, i) => (i === 0 ? 'M' : 'L') + p.x.toFixed(1) + ' ' + p.y.toFixed(1)).join(' ');
                 const area = line + ` L ${points[points.length - 1].x.toFixed(1)} ${H - PAD} L ${points[0].x.toFixed(1)} ${H - PAD} Z`;
                 let inner = `<line x1="${PAD}" y1="${H - PAD}" x2="${W - PAD}" y2="${H - PAD}" stroke="var(--gridline)" stroke-width="1"/>`;
-                inner += `<path d="${area}" fill="var(--brand)" opacity="0.12"/>`;
-                inner += `<path d="${line}" fill="none" stroke="var(--brand)" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"/>`;
+                inner += `<path class="spark-area" d="${area}" fill="var(--brand)" opacity="0.12"/>`;
+                inner += `<path class="spark-line" d="${line}" fill="none" stroke="var(--brand)" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"/>`;
                 for (const p of points) {
                   const ok = p.r.success;
-                  inner += `<circle cx="${p.x.toFixed(1)}" cy="${p.y.toFixed(1)}" r="${ok ? 2.5 : 4.5}" fill="${ok ? 'var(--brand)' : 'var(--critical)'}" stroke="var(--surface-solid)" stroke-width="2"><title>${esc(p.r.jobId)} on ${esc(p.r.nodeId)}: ${p.r.durationMillis}ms${ok ? '' : ' (failed)'}</title></circle>`;
+                  inner += `<circle class="spark-dot" cx="${p.x.toFixed(1)}" cy="${p.y.toFixed(1)}" r="${ok ? 2.5 : 4.5}" fill="${ok ? 'var(--brand)' : 'var(--critical)'}" stroke="var(--surface-solid)" stroke-width="2"><title>${esc(p.r.jobId)} on ${esc(p.r.nodeId)}: ${p.r.durationMillis}ms${ok ? '' : ' (failed)'}</title></circle>`;
                 }
                 svg.innerHTML = inner;
+
+                if (isFreshData) {
+                  const linePath = svg.querySelector('.spark-line');
+                  if (linePath) {
+                    const len = linePath.getTotalLength();
+                    linePath.style.strokeDasharray = len;
+                    linePath.style.strokeDashoffset = len;
+                    linePath.getBoundingClientRect();
+                    linePath.style.transition = 'stroke-dashoffset 1.1s var(--ease)';
+                    linePath.style.strokeDashoffset = '0';
+                  }
+                }
               }
 
               // ---- actions ----
