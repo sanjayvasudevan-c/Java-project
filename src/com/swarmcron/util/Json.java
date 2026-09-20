@@ -6,7 +6,7 @@ import java.util.List;
 import java.util.Map;
 
 /**
- * Minimal hand-rolled JSON reader/writer — just enough for config/job files and
+ * Minimal hand-rolled JSON reader/writer  -  just enough for config/job files and
  * the HTTP API. Parses into plain java.util values: Map<String,Object> (object,
  * order-preserving), List<Object> (array), String, Double (number), Boolean,
  * or null. No streaming, no schema validation, no general-purpose ambitions.

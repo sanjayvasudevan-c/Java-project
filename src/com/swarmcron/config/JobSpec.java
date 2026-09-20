@@ -8,7 +8,7 @@ import java.util.Map;
 /**
  * Immutable description of a cron job, as it appears in jobs.json and as it is
  * carried inside JobRegistry entries. Loaded from file only as a seed on first
- * boot (see JobsFile) — after that the gossiped registry is authoritative.
+ * boot (see JobsFile)  -  after that the gossiped registry is authoritative.
  */
 public record JobSpec(
         String id,

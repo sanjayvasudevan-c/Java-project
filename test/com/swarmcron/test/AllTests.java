@@ -10,6 +10,9 @@ public final class AllTests {
         boolean ok = true;
         ok &= JsonTest.run();
         ok &= ConfigParserTest.run();
+        ok &= CodecTest.run();
+        ok &= SimTransportTest.run();
+        ok &= UdpTransportTest.run();
 
         if (ok) {
             System.out.println("ALL TESTS PASSED");
