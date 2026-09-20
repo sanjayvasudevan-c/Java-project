@@ -16,6 +16,7 @@ import com.swarmcron.election.RaftLite;
 import com.swarmcron.election.TermStore;
 import com.swarmcron.exec.JobExecutor;
 import com.swarmcron.hash.RingManager;
+import com.swarmcron.http.HttpApiServer;
 import com.swarmcron.net.MessageType;
 import com.swarmcron.net.PeerAddress;
 import com.swarmcron.net.SyncChannel;
@@ -30,6 +31,7 @@ import com.swarmcron.store.Snapshot;
 import com.swarmcron.store.WriteAheadLog;
 import com.swarmcron.util.Log;
 
+import java.net.InetSocketAddress;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.security.SecureRandom;
@@ -45,9 +47,9 @@ import java.util.concurrent.Executors;
  * (UdpTransport + Membership + GossipEngine + FailureDetector), Raft-lite
  * election (RaftLite, sharing the same UdpTransport via message-type
  * dispatch), the job registry's anti-entropy sync layer (TcpSyncChannel +
- * JobRegistry + AntiEntropySync), and the consistent hash ring (RingManager,
- * kept in sync with Membership automatically). Scheduling and execution
- * (M8) and the HTTP dashboard (M9) attach here in later milestones.
+ * JobRegistry + AntiEntropySync), the consistent hash ring (RingManager,
+ * kept in sync with Membership automatically), job execution (JobExecutor +
+ * WriteAheadLog + Compactor), and the HTTP dashboard/API (HttpApiServer).
  */
 public final class Main {
 
@@ -145,8 +147,13 @@ public final class Main {
         jobExecutor.start();
         compactor.start();
 
+        HttpApiServer httpApiServer = new HttpApiServer(new InetSocketAddress(config.bindHost(), config.httpPort()),
+                config.nodeId(), membership, ringManager, raftLite, jobRegistry, jobExecutor, scheduler);
+        httpApiServer.start();
+
         Runtime.getRuntime().addShutdownHook(new Thread(() -> {
             Log.info("main", "SwarmCron node '%s' shutting down", config.nodeId());
+            httpApiServer.stop();
             transport.stop();
             syncChannel.stop();
             jobExecutor.stop();
@@ -154,8 +161,8 @@ public final class Main {
             scheduler.shutdown();
         }, "shutdown-hook"));
 
-        Log.info("main", "Node '%s' is up: gossip on %s, anti-entropy sync on %s, job execution armed (HTTP dashboard lands in M9)",
-                config.nodeId(), selfAddress, syncAddress);
+        Log.info("main", "Node '%s' is up: gossip on %s, anti-entropy sync on %s, job execution armed, dashboard on http://%s:%d",
+                config.nodeId(), selfAddress, syncAddress, config.bindHost(), config.httpPort());
 
         // Main thread just stays alive; the selector thread (UdpTransport) and
         // the scheduler/sync-worker threads do all the real work.

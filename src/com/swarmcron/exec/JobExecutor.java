@@ -26,9 +26,13 @@ import java.nio.charset.StandardCharsets;
 import java.time.Instant;
 import java.time.ZoneId;
 import java.time.ZonedDateTime;
+import java.util.ArrayList;
 import java.util.LinkedHashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.ConcurrentLinkedDeque;
+import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicLong;
@@ -67,6 +71,7 @@ public final class JobExecutor {
     private static final long CLAIM_TIMEOUT_MILLIS = 2000;
     private static final long LEASE_SLACK_MILLIS = 5000;
     private static final long DEFAULT_LEASE_WINDOW_MILLIS = 5 * 60_000; // cap for jobs with no configured timeoutSeconds
+    private static final int RECENT_RUNS_CAP = 200; // bounds the dashboard's (M9) in-memory run history
 
     private final String selfId;
     private final Membership membership;
@@ -92,6 +97,9 @@ public final class JobExecutor {
     private final ConcurrentHashMap<String, AtomicInteger> queuedCounts = new ConcurrentHashMap<>();
     private final ConcurrentHashMap<Long, Consumer<RunLease>> pendingClaimCallbacks = new ConcurrentHashMap<>();
     private final AtomicLong requestIdGenerator = new AtomicLong();
+    private final ConcurrentLinkedDeque<RunSummary> recentRuns = new ConcurrentLinkedDeque<>();
+    private final ConcurrentHashMap<String, RunSummary> latestRunByJobId = new ConcurrentHashMap<>();
+    private final CopyOnWriteArrayList<RunResultListener> runResultListeners = new CopyOnWriteArrayList<>();
     private volatile boolean stopped = false;
 
     public JobExecutor(String selfId, Membership membership, RingManager ringManager, RaftLite raftLite,
@@ -163,6 +171,22 @@ public final class JobExecutor {
             }
         }
         return false;
+    }
+
+    public void addRunResultListener(RunResultListener l) {
+        runResultListeners.add(l);
+    }
+
+    /** Most-recent-first, capped at RECENT_RUNS_CAP. Includes both this node's own runs and RUN_RESULT broadcasts observed from peers. */
+    public List<RunSummary> recentRuns() {
+        List<RunSummary> out = new ArrayList<>(recentRuns);
+        java.util.Collections.reverse(out);
+        return out;
+    }
+
+    /** The most recent known outcome for each job id, from whichever node (this one or a peer) last ran it. */
+    public Map<String, RunSummary> latestRunByJobId() {
+        return new LinkedHashMap<>(latestRunByJobId);
     }
 
     @SuppressWarnings("unchecked")
@@ -462,7 +486,31 @@ public final class JobExecutor {
     @SuppressWarnings("unchecked")
     private void handleRunResult(byte[] payload) {
         Map<String, Object> body = (Map<String, Object>) Json.parse(new String(payload, StandardCharsets.UTF_8));
-        Log.debug("exec", "[%s] observed peer run result: %s", selfId, body);
+        Object exitCodeRaw = body.get("exitCode");
+        RunSummary summary = new RunSummary(
+                (String) body.get("jobId"),
+                (String) body.get("nodeId"),
+                ((Number) body.get("scheduledFireMillis")).longValue(),
+                (Boolean) body.get("success"),
+                exitCodeRaw == null ? null : ((Number) exitCodeRaw).intValue(),
+                ((Number) body.get("durationMillis")).longValue(),
+                clock.nowMillis());
+        recordRunSummary(summary);
+    }
+
+    private void recordRunSummary(RunSummary summary) {
+        recentRuns.addLast(summary);
+        while (recentRuns.size() > RECENT_RUNS_CAP) {
+            recentRuns.pollFirst();
+        }
+        latestRunByJobId.put(summary.jobId(), summary);
+        for (RunResultListener l : runResultListeners) {
+            try {
+                l.onRunResult(summary);
+            } catch (RuntimeException e) {
+                Log.error("exec", "[%s] run-result listener threw: %s", selfId, e);
+            }
+        }
     }
 
     private void broadcastClaim(RunLease lease) {
@@ -478,8 +526,12 @@ public final class JobExecutor {
     }
 
     private void broadcastResult(String jobId, long scheduledFireMillis, boolean success, ProcessRunner.RunOutcome outcome) {
+        recordRunSummary(new RunSummary(jobId, selfId, scheduledFireMillis, success,
+                outcome.exitCode(), outcome.durationMillis(), clock.nowMillis()));
+
         Map<String, Object> body = new LinkedHashMap<>();
         body.put("jobId", jobId);
+        body.put("nodeId", selfId);
         body.put("scheduledFireMillis", scheduledFireMillis);
         body.put("success", success);
         body.put("exitCode", outcome.exitCode());

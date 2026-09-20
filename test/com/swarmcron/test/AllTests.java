@@ -31,6 +31,7 @@ public final class AllTests {
         ok &= ProcessRunnerTest.run();
         ok &= WriteAheadLogTest.run();
         ok &= JobExecutorSimTest.run();
+        ok &= HttpApiServerTest.run();
 
         if (ok) {
             System.out.println("ALL TESTS PASSED");
