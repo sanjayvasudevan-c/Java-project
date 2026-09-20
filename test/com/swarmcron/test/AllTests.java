@@ -13,6 +13,9 @@ public final class AllTests {
         ok &= CodecTest.run();
         ok &= SimTransportTest.run();
         ok &= UdpTransportTest.run();
+        ok &= MembershipTest.run();
+        ok &= GossipBufferTest.run();
+        ok &= SwimSimTest.run();
 
         if (ok) {
             System.out.println("ALL TESTS PASSED");

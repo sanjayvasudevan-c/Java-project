@@ -1,20 +1,31 @@
 package com.swarmcron;
 
+import com.swarmcron.clock.Clock;
+import com.swarmcron.clock.SystemClock;
+import com.swarmcron.clock.SystemScheduler;
+import com.swarmcron.cluster.FailureDetector;
+import com.swarmcron.cluster.GossipEngine;
+import com.swarmcron.cluster.Membership;
 import com.swarmcron.config.ConfigParser;
 import com.swarmcron.config.JobSpec;
 import com.swarmcron.config.JobsFile;
 import com.swarmcron.config.NodeConfig;
+import com.swarmcron.net.PeerAddress;
+import com.swarmcron.net.Transport;
+import com.swarmcron.net.UdpTransport;
 import com.swarmcron.util.Log;
 
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.CountDownLatch;
 
 /**
- * Entry point. Parses CLI args, loads config, and (for now, M1) just brings a
- * node up and idles. Networking, gossip, scheduling etc. are wired in by
- * later milestones and started from here.
+ * Entry point. Parses CLI args, loads config, and brings up the gossip layer:
+ * UdpTransport + Membership + GossipEngine + FailureDetector. Scheduling and
+ * execution (M6-M8) and the HTTP dashboard (M9) attach here in later
+ * milestones.
  */
 public final class Main {
 
@@ -38,15 +49,37 @@ public final class Main {
             Log.debug("main", "seed job: %s schedule='%s' command=%s", job.id(), job.schedule(), job.command());
         }
 
-        Runtime.getRuntime().addShutdownHook(new Thread(
-                () -> Log.info("main", "SwarmCron node '%s' shutting down", config.nodeId()),
-                "shutdown-hook"));
+        PeerAddress selfAddress = new PeerAddress(config.bindHost(), config.bindPort());
+        List<PeerAddress> seedAddresses = new ArrayList<>();
+        for (String seed : config.seeds()) {
+            seedAddresses.add(PeerAddress.parse(seed));
+        }
 
-        Log.info("main", "Node '%s' is up. (networking/gossip/scheduling land in later milestones)", config.nodeId());
+        Clock clock = SystemClock.INSTANCE;
+        SystemScheduler scheduler = new SystemScheduler(config.nodeId());
+        Transport transport = new UdpTransport(selfAddress);
+        Membership membership = new Membership(config.nodeId(), selfAddress, clock);
+        GossipEngine gossipEngine = new GossipEngine(membership);
+        FailureDetector.Config fdConfig = new FailureDetector.Config(
+                config.protocolPeriodMs(), config.pingTimeoutMillis(), config.indirectProbeCount(), config.suspicionMultiplier());
+        FailureDetector failureDetector = new FailureDetector(
+                membership, transport, gossipEngine, scheduler, clock, fdConfig, seedAddresses,
+                new java.security.SecureRandom().nextLong());
 
-        // Nothing to do yet in M1 beyond staying alive until killed; later
-        // milestones replace this with the gossip/scheduler/http threads
-        // joining on their own lifecycles.
+        transport.start(failureDetector::onMessage);
+        failureDetector.start();
+
+        Runtime.getRuntime().addShutdownHook(new Thread(() -> {
+            Log.info("main", "SwarmCron node '%s' shutting down", config.nodeId());
+            transport.stop();
+            scheduler.shutdown();
+        }, "shutdown-hook"));
+
+        Log.info("main", "Node '%s' is up: SWIM gossip running on %s (scheduling/execution/HTTP land in later milestones)",
+                config.nodeId(), selfAddress);
+
+        // Main thread just stays alive; the selector thread (UdpTransport) and
+        // the scheduler threads (SystemScheduler) do all the real work.
         new CountDownLatch(1).await();
     }
 

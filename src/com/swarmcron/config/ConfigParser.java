@@ -59,12 +59,14 @@ public final class ConfigParser {
         int httpPort = Integer.parseInt(kv.getOrDefault("http.port", "8080"));
         String dataDir = kv.getOrDefault("data.dir", "./data/" + nodeId);
         long protocolPeriodMs = Long.parseLong(kv.getOrDefault("gossip.protocolPeriodMs", "1000"));
+        long pingTimeoutMillis = Long.parseLong(kv.getOrDefault("gossip.pingTimeoutMs", "300"));
+        int indirectProbeCount = Integer.parseInt(kv.getOrDefault("gossip.indirectProbeCount", "3"));
         int suspicionMultiplier = Integer.parseInt(kv.getOrDefault("gossip.suspicionMultiplier", "5"));
         int virtualNodes = Integer.parseInt(kv.getOrDefault("ring.virtualNodes", "128"));
         int jobReplicas = Integer.parseInt(kv.getOrDefault("job.replicas", "2"));
 
         return new NodeConfig(nodeId, bindHost, bindPort, List.copyOf(seeds), httpPort, dataDir,
-                protocolPeriodMs, suspicionMultiplier, virtualNodes, jobReplicas);
+                protocolPeriodMs, pingTimeoutMillis, indirectProbeCount, suspicionMultiplier, virtualNodes, jobReplicas);
     }
 
     private static String require(Map<String, String> kv, String key) {

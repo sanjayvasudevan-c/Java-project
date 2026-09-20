@@ -58,6 +58,8 @@ final class ConfigParserTest {
             NodeConfig config = ConfigParser.parseFile(tmp);
             Assert.equals(8080, config.httpPort(), "default httpPort");
             Assert.equals(1000L, config.protocolPeriodMs(), "default protocolPeriodMs");
+            Assert.equals(300L, config.pingTimeoutMillis(), "default pingTimeoutMillis");
+            Assert.equals(3, config.indirectProbeCount(), "default indirectProbeCount");
             Assert.equals(5, config.suspicionMultiplier(), "default suspicionMultiplier");
             Assert.equals(List.of(), config.seeds(), "default seeds empty");
         } finally {

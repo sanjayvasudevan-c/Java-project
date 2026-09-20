@@ -14,6 +14,8 @@ public record NodeConfig(
         int httpPort,
         String dataDir,
         long protocolPeriodMs,
+        long pingTimeoutMillis,
+        int indirectProbeCount,
         int suspicionMultiplier,
         int virtualNodes,
         int jobReplicas
