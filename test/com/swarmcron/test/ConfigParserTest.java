@@ -63,6 +63,8 @@ final class ConfigParserTest {
             Assert.equals(5, config.suspicionMultiplier(), "default suspicionMultiplier");
             Assert.equals(30000L, config.antiEntropyIntervalMillis(), "default antiEntropyIntervalMillis");
             Assert.equals(5000L, config.syncRequestTimeoutMillis(), "default syncRequestTimeoutMillis");
+            Assert.equals(8, config.execWorkerThreads(), "default execWorkerThreads");
+            Assert.equals(60000L, config.compactionIntervalMillis(), "default compactionIntervalMillis");
             Assert.equals(List.of(), config.seeds(), "default seeds empty");
         } finally {
             Files.deleteIfExists(tmp);

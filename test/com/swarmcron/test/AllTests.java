@@ -28,6 +28,9 @@ public final class AllTests {
         ok &= TimerWheelTest.run();
         ok &= RaftLiteTest.run();
         ok &= SymmetricPartitionSimTest.run();
+        ok &= ProcessRunnerTest.run();
+        ok &= WriteAheadLogTest.run();
+        ok &= JobExecutorSimTest.run();
 
         if (ok) {
             System.out.println("ALL TESTS PASSED");

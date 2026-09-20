@@ -7,6 +7,8 @@ import com.swarmcron.election.RaftLite;
 import com.swarmcron.hash.ConsistentHashRing;
 import com.swarmcron.net.MessageType;
 import com.swarmcron.net.PeerAddress;
+import com.swarmcron.store.WalRecord;
+import com.swarmcron.store.WriteAheadLog;
 
 import java.util.ArrayList;
 import java.util.HashMap;
@@ -34,6 +36,7 @@ public final class ClusterSim {
             case "concurrent-job-edits" -> concurrentJobEdits();
             case "ring-rebalance" -> ringRebalance();
             case "symmetric-partition" -> symmetricPartition();
+            case "job-takeover" -> jobTakeover();
             default -> {
                 System.out.println("Unknown scenario: " + scenario);
                 yield false;
@@ -284,6 +287,63 @@ public final class ClusterSim {
                 + "correctly recognizes it cannot see a majority of the known cluster, marks itself DEGRADED, "
                 + "and never self-appoints a leader -- and once the partition heals, every node converges back "
                 + "on a single agreed leader with no manual intervention.");
+        return pass;
+    }
+
+    /** M8 scenario 4: the node owning a job dies before ever running an overdue firing; a surviving node takes over via the ring-change path and completes it. */
+    static boolean jobTakeover() {
+        SimWorld world = new SimWorld(System.currentTimeMillis(), 204);
+        world.network().setDefaultLink(new SimNetwork.LinkConfig(5, 20, 0.0));
+        FailureDetector.Config config = new FailureDetector.Config(1000, 300, 3, 5);
+
+        List<PeerAddress> addrs = List.of(new PeerAddress("sim", 1), new PeerAddress("sim", 2), new PeerAddress("sim", 3));
+        List<String> ids = List.of("n1", "n2", "n3");
+        List<SimSwarmNode> nodes = new ArrayList<>();
+        for (int i = 0; i < 3; i++) {
+            List<PeerAddress> seeds = new ArrayList<>(addrs);
+            seeds.remove(i);
+            nodes.add(new SimSwarmNode(world, ids.get(i), addrs.get(i), seeds, config, 204 + i, 30_000, 128));
+        }
+        world.advanceBy(10_000); // bootstrap, election, and ring settle
+
+        // Hourly: within this scenario's short window, the only way a survivor ever runs this
+        // job is via JobExecutor's ring-change-triggered immediate takeover, not its own routine
+        // per-job timer (which wouldn't naturally fire again for up to an hour of simulated time).
+        JobSpec spec = new JobSpec("nightly-report", "0 0 * * * *", List.of("/bin/true"), ".", 5, 0, 0, JobSpec.OVERLAP_SKIP, true);
+        for (SimSwarmNode n : nodes) {
+            n.jobRegistry.put(spec);
+        }
+        String originalOwnerId = nodes.get(0).ringManager.currentRing().owner("nightly-report");
+        SimSwarmNode originalOwner = nodes.stream().filter(n -> n.nodeId.equals(originalOwnerId)).findFirst().orElseThrow();
+
+        long killAt = world.clock().nowMillis();
+        originalOwner.kill();
+        world.advanceTo(killAt + 20_000); // SWIM DEAD detection + ring rebuild + raft re-election + claim round trip
+
+        SimSwarmNode survivor = nodes.stream().filter(n -> !n.nodeId.equals(originalOwnerId)).findFirst().orElseThrow();
+        String newOwnerId = survivor.ringManager.currentRing().owner("nightly-report");
+        boolean ownershipMoved = !newOwnerId.equals(originalOwnerId);
+
+        SimSwarmNode newOwner = nodes.stream().filter(n -> n.nodeId.equals(newOwnerId)).findFirst().orElseThrow();
+        boolean completedAfterTakeover = false;
+        long deadline = System.currentTimeMillis() + 5000; // real-time wait: ProcessRunner spawns a real (near-instant) OS process
+        while (System.currentTimeMillis() < deadline && !completedAfterTakeover) {
+            for (WalRecord r : new WriteAheadLog(newOwner.dataDir.resolve("run.wal")).readAll()) {
+                if (r.jobId().equals("nightly-report") && r.event() == WalRecord.Event.COMPLETED && r.scheduledFireMillis() > killAt) {
+                    completedAfterTakeover = true;
+                }
+            }
+        }
+
+        boolean pass = ownershipMoved && completedAfterTakeover;
+        System.out.println("scenario job-takeover: original owner=" + originalOwnerId + ", killed at t=" + killAt
+                + ", ownership moved to " + newOwnerId + "=" + ownershipMoved
+                + ", new owner completed the overdue job after takeover=" + completedAfterTakeover);
+        System.out.println("Proves M8's owner-dies-mid-run scenario: a job's ring owner dies before ever running "
+                + "an overdue firing; SWIM marks it DEAD, the ring rebuilds on survivors, and JobExecutor's "
+                + "ring-change listener treats the newly-owned, still-overdue job as a takeover -- requesting a "
+                + "fresh fencing-token-backed lease from the (possibly newly re-elected) Raft-lite leader and "
+                + "running it, all without any manual intervention or lost work.");
         return pass;
     }
 }

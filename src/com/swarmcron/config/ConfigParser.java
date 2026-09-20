@@ -66,10 +66,12 @@ public final class ConfigParser {
         int jobReplicas = Integer.parseInt(kv.getOrDefault("job.replicas", "2"));
         long antiEntropyIntervalMillis = Long.parseLong(kv.getOrDefault("sync.antiEntropyIntervalMs", "30000"));
         long syncRequestTimeoutMillis = Long.parseLong(kv.getOrDefault("sync.requestTimeoutMs", "5000"));
+        int execWorkerThreads = Integer.parseInt(kv.getOrDefault("exec.workerThreads", "8"));
+        long compactionIntervalMillis = Long.parseLong(kv.getOrDefault("store.compactionIntervalMs", "60000"));
 
         return new NodeConfig(nodeId, bindHost, bindPort, List.copyOf(seeds), httpPort, dataDir,
                 protocolPeriodMs, pingTimeoutMillis, indirectProbeCount, suspicionMultiplier, virtualNodes, jobReplicas,
-                antiEntropyIntervalMillis, syncRequestTimeoutMillis);
+                antiEntropyIntervalMillis, syncRequestTimeoutMillis, execWorkerThreads, compactionIntervalMillis);
     }
 
     private static String require(Map<String, String> kv, String key) {

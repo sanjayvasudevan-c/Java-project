@@ -14,6 +14,7 @@ import com.swarmcron.config.NodeConfig;
 import com.swarmcron.election.FileTermStore;
 import com.swarmcron.election.RaftLite;
 import com.swarmcron.election.TermStore;
+import com.swarmcron.exec.JobExecutor;
 import com.swarmcron.hash.RingManager;
 import com.swarmcron.net.MessageType;
 import com.swarmcron.net.PeerAddress;
@@ -23,14 +24,21 @@ import com.swarmcron.net.Transport;
 import com.swarmcron.net.UdpTransport;
 import com.swarmcron.state.AntiEntropySync;
 import com.swarmcron.state.JobRegistry;
+import com.swarmcron.store.Compactor;
+import com.swarmcron.store.Recovery;
+import com.swarmcron.store.Snapshot;
+import com.swarmcron.store.WriteAheadLog;
 import com.swarmcron.util.Log;
 
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.security.SecureRandom;
+import java.time.ZoneId;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
 
 /**
  * Entry point. Parses CLI args, loads config, and brings up the gossip layer
@@ -80,18 +88,6 @@ public final class Main {
         TermStore termStore = new FileTermStore(Path.of(config.dataDir(), "raft-state.conf"));
         RaftLite raftLite = new RaftLite(membership, transport, scheduler, termStore, new SecureRandom().nextLong());
 
-        // One transport, one inbound stream: dispatch by message type to whichever
-        // component owns it (SWIM gossip vs. Raft election/heartbeats).
-        transport.start((from, type, payload) -> {
-            switch (type) {
-                case PING, ACK, PING_REQ -> failureDetector.onMessage(from, type, payload);
-                case REQUEST_VOTE, VOTE, HEARTBEAT -> raftLite.onMessage(from, type, payload);
-                default -> Log.warn("main", "no handler for message type %s from %s", type, from);
-            }
-        });
-        failureDetector.start();
-        raftLite.start();
-
         HybridClock hybridClock = new HybridClock(clock);
         JobRegistry jobRegistry = new JobRegistry(config.nodeId(), hybridClock);
         SyncChannel syncChannel = new TcpSyncChannel(syncAddress, config.syncRequestTimeoutMillis());
@@ -108,10 +104,37 @@ public final class Main {
                 Log.info("raft", "[%s] role=%s term=%d leaderId=%s degraded=%s",
                         config.nodeId(), newRole, term, leaderId, raftLite.isDegraded()));
 
-        // TODO(M8): jobs.json should only seed the registry on a truly first
-        // boot (once the WAL can tell us that); for now it re-applies every
-        // start, which is harmless (put() is idempotent per job id) but not
-        // yet what the design doc promises.
+        WriteAheadLog wal = new WriteAheadLog(Path.of(config.dataDir(), "run.wal"));
+        Snapshot snapshot = new Snapshot(Path.of(config.dataDir(), "run.snapshot"));
+        Recovery.Recovered recovered = Recovery.recover(snapshot, wal);
+        // Deliberately non-daemon: the process's main thread blocks forever below on
+        // CountDownLatch.await(), so this never affects JVM exit in practice, but a live job
+        // subprocess wait is exactly the kind of work that shouldn't be silently abandoned if
+        // that ever changes (see sim.SimSwarmNode's job worker pool for the opposite call and why).
+        ExecutorService jobWorkerPool = Executors.newFixedThreadPool(config.execWorkerThreads(),
+                r -> new Thread(r, "job-worker-" + config.nodeId()));
+        JobExecutor jobExecutor = new JobExecutor(config.nodeId(), membership, ringManager, raftLite, jobRegistry,
+                clock, scheduler, transport, wal, recovered, ZoneId.systemDefault(), jobWorkerPool);
+        Compactor compactor = new Compactor(snapshot, wal, jobExecutor::currentLastFireSnapshot,
+                jobExecutor::hasInFlightRuns, scheduler, config.compactionIntervalMillis());
+
+        // One transport, one inbound stream: dispatch by message type to whichever
+        // component owns it (SWIM gossip, Raft election/heartbeats, or job claims).
+        transport.start((from, type, payload) -> {
+            switch (type) {
+                case PING, ACK, PING_REQ -> failureDetector.onMessage(from, type, payload);
+                case REQUEST_VOTE, VOTE, HEARTBEAT -> raftLite.onMessage(from, type, payload);
+                case RUN_CLAIM, CLAIM_GRANT, RUN_RESULT -> jobExecutor.onMessage(from, type, payload);
+                default -> Log.warn("main", "no handler for message type %s from %s", type, from);
+            }
+        });
+        failureDetector.start();
+        raftLite.start();
+
+        // Seed jobs.json into the registry before JobExecutor.start() scans it, so a
+        // first boot arms timers for the seeded jobs immediately rather than waiting
+        // for a JobRegistry listener callback. put() is idempotent per job id, so a
+        // subsequent restart re-applying the same file is harmless.
         for (JobSpec job : seedJobs) {
             jobRegistry.put(job);
             Log.debug("main", "seeded job: %s schedule='%s' command=%s", job.id(), job.schedule(), job.command());
@@ -119,14 +142,19 @@ public final class Main {
         Log.info("main", "Loaded %d seed job(s) from %s", seedJobs.size(),
                 parsed.jobsPath == null ? "(none given)" : parsed.jobsPath);
 
+        jobExecutor.start();
+        compactor.start();
+
         Runtime.getRuntime().addShutdownHook(new Thread(() -> {
             Log.info("main", "SwarmCron node '%s' shutting down", config.nodeId());
             transport.stop();
             syncChannel.stop();
+            jobExecutor.stop();
+            wal.close();
             scheduler.shutdown();
         }, "shutdown-hook"));
 
-        Log.info("main", "Node '%s' is up: gossip on %s, anti-entropy sync on %s (scheduling/execution/HTTP land in later milestones)",
+        Log.info("main", "Node '%s' is up: gossip on %s, anti-entropy sync on %s, job execution armed (HTTP dashboard lands in M9)",
                 config.nodeId(), selfAddress, syncAddress);
 
         // Main thread just stays alive; the selector thread (UdpTransport) and

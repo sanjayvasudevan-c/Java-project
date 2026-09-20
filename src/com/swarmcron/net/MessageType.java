@@ -17,5 +17,6 @@ public enum MessageType {
     RUN_RESULT,
     REQUEST_VOTE,
     VOTE,
-    HEARTBEAT
+    HEARTBEAT,
+    CLAIM_GRANT
 }

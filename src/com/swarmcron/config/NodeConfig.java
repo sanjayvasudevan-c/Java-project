@@ -20,6 +20,8 @@ public record NodeConfig(
         int virtualNodes,
         int jobReplicas,
         long antiEntropyIntervalMillis,
-        long syncRequestTimeoutMillis
+        long syncRequestTimeoutMillis,
+        int execWorkerThreads,
+        long compactionIntervalMillis
 ) {
 }
