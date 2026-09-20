@@ -112,8 +112,8 @@ public final class Membership {
             selfIncarnation = update.incarnation() + 1;
             MemberInfo refuted = new MemberInfo(selfId, selfAddress, NodeState.ALIVE, selfIncarnation, clock.nowMillis());
             members.put(selfId, refuted);
-            Log.warn("membership", "refuting suspicion at incarnation %d, now ALIVE at incarnation %d",
-                    update.incarnation(), selfIncarnation);
+            Log.warn("membership", "[%s] refuting suspicion at incarnation %d, now ALIVE at incarnation %d",
+                    selfId, update.incarnation(), selfIncarnation);
             fireChanged(refuted);
             return true;
         }

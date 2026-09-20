@@ -2,6 +2,7 @@ package com.swarmcron.sim;
 
 import com.swarmcron.cluster.FailureDetector;
 import com.swarmcron.cluster.NodeState;
+import com.swarmcron.config.JobSpec;
 import com.swarmcron.net.MessageType;
 import com.swarmcron.net.PeerAddress;
 
@@ -24,6 +25,7 @@ public final class ClusterSim {
         boolean ok = switch (scenario) {
             case "ping-pong" -> pingPong();
             case "swim-failure-detection" -> swimFailureDetection();
+            case "concurrent-job-edits" -> concurrentJobEdits();
             default -> {
                 System.out.println("Unknown scenario: " + scenario);
                 yield false;
@@ -105,6 +107,51 @@ public final class ClusterSim {
         System.out.println("Proves SWIM failure detection end to end: seed bootstrap discovery, random "
                 + "probing, indirect ping-req fallback, suspicion timeout, and gossip-propagated DEAD "
                 + "state, all driven by VirtualClock/SimScheduler with no real time elapsed.");
+        return pass;
+    }
+
+    /** Scenario 5: two partitioned nodes edit the same job concurrently; assert both converge to the identical spec after the partition heals. */
+    static boolean concurrentJobEdits() {
+        SimWorld world = new SimWorld(0, 11);
+        world.network().setDefaultLink(new SimNetwork.LinkConfig(5, 15, 0.0));
+
+        PeerAddress addrA = new PeerAddress("sim", 1);
+        PeerAddress addrB = new PeerAddress("sim", 2);
+        FailureDetector.Config config = new FailureDetector.Config(1000, 300, 3, 5);
+        long antiEntropyIntervalMillis = 5000;
+
+        SimSwarmNode alpha = new SimSwarmNode(world, "alpha", addrA, List.of(addrB), config, "alpha".hashCode(), antiEntropyIntervalMillis);
+        SimSwarmNode beta = new SimSwarmNode(world, "beta", addrB, List.of(addrA), config, "beta".hashCode(), antiEntropyIntervalMillis);
+
+        world.advanceTo(5000); // let them discover each other
+
+        world.network().blockPair(addrA, addrB); // partition
+
+        alpha.jobRegistry.put(new JobSpec("nightly-backup", "0 2 * * *",
+                List.of("/bin/backup", "--fast"), "/", 3600, 2, 30_000, JobSpec.OVERLAP_SKIP, true));
+        beta.jobRegistry.put(new JobSpec("nightly-backup", "0 3 * * *",
+                List.of("/bin/backup", "--thorough"), "/", 7200, 1, 60_000, JobSpec.OVERLAP_QUEUE, true));
+
+        world.advanceTo(world.clock().nowMillis() + antiEntropyIntervalMillis * 2);
+
+        JobSpec alphaDuring = alpha.jobRegistry.get("nightly-backup").spec();
+        JobSpec betaDuring = beta.jobRegistry.get("nightly-backup").spec();
+        boolean divergedDuringPartition = !alphaDuring.equals(betaDuring);
+
+        world.network().unblockPair(addrA, addrB); // heal
+        world.advanceTo(world.clock().nowMillis() + antiEntropyIntervalMillis * 3);
+
+        JobSpec alphaFinal = alpha.jobRegistry.get("nightly-backup").spec();
+        JobSpec betaFinal = beta.jobRegistry.get("nightly-backup").spec();
+        boolean converged = alphaFinal.equals(betaFinal);
+        boolean pass = divergedDuringPartition && converged;
+
+        System.out.println("scenario concurrent-job-edits: diverged during partition=" + divergedDuringPartition
+                + ", converged after heal=" + converged + " (winning schedule='" + alphaFinal.schedule() + "')");
+        System.out.println("Proves the JobRegistry CRDT: two partitioned nodes independently edit the same "
+                + "job, diverge while the partition holds, and converge to the identical deterministically "
+                + "chosen spec once anti-entropy sync resumes after the partition heals -- no coordinator, "
+                + "no manual conflict resolution, and every node computes the same winner independently.");
         return pass;
     }
 }

@@ -1,5 +1,10 @@
 package com.swarmcron.sim;
 
+import com.swarmcron.net.PeerAddress;
+
+import java.util.HashMap;
+import java.util.Map;
+
 /**
  * Owns one simulation's shared time base: a VirtualClock plus the single
  * chronological event queue that both SimNetwork (message delivery) and
@@ -14,11 +19,16 @@ public final class SimWorld {
     private final SimEventQueue eventQueue = new SimEventQueue();
     private final SimNetwork network;
     private final SimScheduler scheduler;
+    private final Map<PeerAddress, SimSyncChannel> syncChannels = new HashMap<>();
 
     public SimWorld(long startMillis, long seed) {
         this.clock = new VirtualClock(startMillis);
         this.network = new SimNetwork(clock, eventQueue, seed);
         this.scheduler = new SimScheduler(clock, eventQueue);
+    }
+
+    public SimSyncChannel createSyncChannel(PeerAddress address) {
+        return new SimSyncChannel(address, this, syncChannels);
     }
 
     public VirtualClock clock() {

@@ -16,6 +16,12 @@ public final class AllTests {
         ok &= MembershipTest.run();
         ok &= GossipBufferTest.run();
         ok &= SwimSimTest.run();
+        ok &= VectorClockTest.run();
+        ok &= HybridClockTest.run();
+        ok &= MergeEngineTest.run();
+        ok &= JobRegistryTest.run();
+        ok &= TcpSyncChannelTest.run();
+        ok &= JobRegistrySimTest.run();
 
         if (ok) {
             System.out.println("ALL TESTS PASSED");

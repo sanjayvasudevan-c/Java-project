@@ -64,9 +64,12 @@ public final class ConfigParser {
         int suspicionMultiplier = Integer.parseInt(kv.getOrDefault("gossip.suspicionMultiplier", "5"));
         int virtualNodes = Integer.parseInt(kv.getOrDefault("ring.virtualNodes", "128"));
         int jobReplicas = Integer.parseInt(kv.getOrDefault("job.replicas", "2"));
+        long antiEntropyIntervalMillis = Long.parseLong(kv.getOrDefault("sync.antiEntropyIntervalMs", "30000"));
+        long syncRequestTimeoutMillis = Long.parseLong(kv.getOrDefault("sync.requestTimeoutMs", "5000"));
 
         return new NodeConfig(nodeId, bindHost, bindPort, List.copyOf(seeds), httpPort, dataDir,
-                protocolPeriodMs, pingTimeoutMillis, indirectProbeCount, suspicionMultiplier, virtualNodes, jobReplicas);
+                protocolPeriodMs, pingTimeoutMillis, indirectProbeCount, suspicionMultiplier, virtualNodes, jobReplicas,
+                antiEntropyIntervalMillis, syncRequestTimeoutMillis);
     }
 
     private static String require(Map<String, String> kv, String key) {

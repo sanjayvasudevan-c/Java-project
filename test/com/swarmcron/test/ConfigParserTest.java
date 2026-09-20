@@ -61,6 +61,8 @@ final class ConfigParserTest {
             Assert.equals(300L, config.pingTimeoutMillis(), "default pingTimeoutMillis");
             Assert.equals(3, config.indirectProbeCount(), "default indirectProbeCount");
             Assert.equals(5, config.suspicionMultiplier(), "default suspicionMultiplier");
+            Assert.equals(30000L, config.antiEntropyIntervalMillis(), "default antiEntropyIntervalMillis");
+            Assert.equals(5000L, config.syncRequestTimeoutMillis(), "default syncRequestTimeoutMillis");
             Assert.equals(List.of(), config.seeds(), "default seeds empty");
         } finally {
             Files.deleteIfExists(tmp);

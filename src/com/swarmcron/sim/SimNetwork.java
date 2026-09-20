@@ -4,8 +4,10 @@ import com.swarmcron.net.MessageType;
 import com.swarmcron.net.PeerAddress;
 
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.Map;
 import java.util.Random;
+import java.util.Set;
 
 /**
  * In-memory network fabric shared by every SimTransport in one simulation.
@@ -36,6 +38,7 @@ public final class SimNetwork {
     private final Random random;
     private final Map<PeerAddress, SimTransport> transports = new HashMap<>();
     private final Map<PeerPair, LinkConfig> overrides = new HashMap<>();
+    private final Set<PeerPair> blockedPairs = new HashSet<>();
 
     private LinkConfig defaultLink = new LinkConfig(1, 1, 0.0);
 
@@ -52,6 +55,27 @@ public final class SimNetwork {
     /** Overrides the link used for messages sent from -> to (one direction; set both ways for a symmetric link). */
     public void setLink(PeerAddress from, PeerAddress to, LinkConfig link) {
         overrides.put(new PeerPair(from, to), link);
+    }
+
+    /**
+     * Simulates a network partition between a and b: every send in either
+     * direction is dropped, for every channel that consults this network
+     * (gossip via SimTransport, and anti-entropy via SimSyncChannel) -- a
+     * minimal preview of the full PartitionInjector arriving later, but
+     * already enough for a scenario that partitions two nodes and heals them.
+     */
+    public void blockPair(PeerAddress a, PeerAddress b) {
+        blockedPairs.add(new PeerPair(a, b));
+        blockedPairs.add(new PeerPair(b, a));
+    }
+
+    public void unblockPair(PeerAddress a, PeerAddress b) {
+        blockedPairs.remove(new PeerPair(a, b));
+        blockedPairs.remove(new PeerPair(b, a));
+    }
+
+    public boolean isBlocked(PeerAddress from, PeerAddress to) {
+        return blockedPairs.contains(new PeerPair(from, to));
     }
 
     void register(PeerAddress addr, SimTransport transport) {
@@ -71,6 +95,13 @@ public final class SimNetwork {
         long jitter = spread == 0 ? 0 : Math.floorMod(random.nextLong(), spread + 1);
         long deliverAt = clock.nowMillis() + link.minLatencyMillis() + jitter;
         eventQueue.schedule(deliverAt, () -> {
+            // Checked at actual delivery time, not send time: a partition
+            // imposed after a message is sent but before it would have
+            // arrived must still drop it, or a message sent in the same
+            // instant a scenario calls blockPair() could slip through.
+            if (isBlocked(from, to)) {
+                return;
+            }
             SimTransport dest = transports.get(to);
             if (dest != null) {
                 dest.deliver(from, type, payload);

@@ -6,8 +6,14 @@ import java.util.List;
 /**
  * Membership-specific glue around GossipBuffer: turns outgoing updates into
  * wire JSON for piggybacking, and applies incoming wire JSON back into
- * Membership, re-enqueuing anything that actually changed local state so it
- * keeps spreading (classic SWIM infection-style dissemination).
+ * Membership. Re-dissemination of anything that actually changes local state
+ * is handled centrally by whoever calls Membership.addListener (see
+ * FailureDetector.eagerlyPropagate) -- deliberately NOT here. The raw
+ * incoming claim and the resulting state can differ (self-refutation is
+ * exactly this: an incoming DEAD claim about us produces an outgoing ALIVE
+ * result), so re-enqueuing the raw claim after a successful merge would be
+ * wrong; only the listener, which sees Membership's actual resulting
+ * MemberInfo, can re-gossip the correct value.
  */
 public final class GossipEngine {
 
@@ -43,10 +49,7 @@ public final class GossipEngine {
             return;
         }
         for (Object o : list) {
-            MemberUpdate update = MemberUpdate.fromJson(o);
-            if (membership.merge(update)) {
-                buffer.enqueue(update);
-            }
+            membership.merge(MemberUpdate.fromJson(o));
         }
     }
 

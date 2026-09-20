@@ -18,6 +18,8 @@ public record NodeConfig(
         int indirectProbeCount,
         int suspicionMultiplier,
         int virtualNodes,
-        int jobReplicas
+        int jobReplicas,
+        long antiEntropyIntervalMillis,
+        long syncRequestTimeoutMillis
 ) {
 }
