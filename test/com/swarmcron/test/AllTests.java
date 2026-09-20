@@ -24,6 +24,8 @@ public final class AllTests {
         ok &= JobRegistrySimTest.run();
         ok &= HashRingTest.run();
         ok &= RingManagerSimTest.run();
+        ok &= CronExpressionTest.run();
+        ok &= TimerWheelTest.run();
 
         if (ok) {
             System.out.println("ALL TESTS PASSED");
