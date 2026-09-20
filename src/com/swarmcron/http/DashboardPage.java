@@ -4,11 +4,14 @@ package com.swarmcron.http;
  * The dashboard: one static HTML file with inline CSS/JS, no external
  * scripts, stylesheets, icon fonts, or chart libraries (consistent with the
  * project's zero-dependency constraint). A sidebar-navigated app shell over
- * four sections (Overview/Cluster/Jobs/Activity); the color system is the
- * validated dark palette (status colors, categorical blue, chart surfaces)
- * rather than ad hoc hex values, and the "recent run activity" panel is a
- * real inline-SVG sparkline, not just a table, per the project's own
- * dataviz conventions for anything that renders live operational data.
+ * four sections (Overview/Cluster/Jobs/Activity), styled as a light, warm
+ * "paper" theme -- a cream page plane, white cards, a terracotta accent --
+ * rather than a dark ops-tool look. Every color is a validated choice (each
+ * checked against the project's own dataviz palette validator for contrast
+ * on its actual surface), not an ad hoc hex value, and the "recent run
+ * activity" panel is a real inline-SVG sparkline, not just a table, per the
+ * project's own dataviz conventions for anything that renders live
+ * operational data.
  *
  * Fetches its initial state from the JSON API on load, then keeps itself
  * current by re-fetching whichever section an SSE event on /events says
@@ -28,37 +31,41 @@ final class DashboardPage {
             <title>SwarmCron</title>
             <style>
               :root {
-                color-scheme: dark;
-                --surface-0: #0d0d0d;
-                --surface-1: #1a1a19;
-                --surface-2: #212120;
-                --text-primary: #ffffff;
-                --text-secondary: #c3c2b7;
-                --text-muted: #898781;
-                --border: rgba(255,255,255,0.10);
-                --gridline: #2c2c2a;
-                --brand: #3987e5;
-                --brand-strong: #2a78d6;
-                --brand-dim: rgba(57,135,229,0.16);
-                --good: #0ca30c;
-                --good-dim: rgba(12,163,12,0.16);
-                --warning: #fab219;
-                --warning-dim: rgba(250,178,25,0.16);
-                --critical: #d03b3b;
-                --critical-dim: rgba(208,59,59,0.16);
+                color-scheme: light;
+                /* A warm, light "paper" theme (cream page, white cards, terracotta
+                   accent) rather than a dark ops-tool look -- validated for contrast
+                   with the project's own palette validator (see DashboardPage javadoc). */
+                --page: #F5F3EE;
+                --surface-1: #FFFFFF;
+                --surface-2: #EFEBE2;
+                --text-primary: #262521;
+                --text-secondary: #6B6659;
+                --text-muted: #948E7D;
+                --border: rgba(38,37,33,0.10);
+                --gridline: #ECE8DD;
+                --brand: #CC785C;
+                --brand-strong: #B35A3B;
+                --brand-dim: rgba(204,120,92,0.12);
+                --good: #15803D;
+                --good-dim: rgba(21,128,61,0.10);
+                --warning: #B45309;
+                --warning-dim: rgba(180,83,9,0.10);
+                --critical: #B91C1C;
+                --critical-dim: rgba(185,28,28,0.10);
+                --shadow: 0 1px 2px rgba(38,37,33,0.04), 0 1px 8px rgba(38,37,33,0.04);
               }
               * { box-sizing: border-box; }
-              body { margin: 0; font-family: system-ui, -apple-system, "Segoe UI", sans-serif; background: var(--surface-0); color: var(--text-primary); }
+              body { margin: 0; font-family: system-ui, -apple-system, "Segoe UI", sans-serif; background: var(--page); color: var(--text-primary); }
               code, .mono { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
 
               .app { display: flex; min-height: 100vh; }
 
               .sidebar { width: 228px; flex: none; background: var(--surface-2); border-right: 1px solid var(--border); padding: 18px 12px; display: flex; flex-direction: column; gap: 4px; }
               .brand-row { display: flex; align-items: center; gap: 10px; padding: 4px 8px 18px; }
-              .brand-row .mark { width: 28px; height: 28px; border-radius: 8px; background: linear-gradient(135deg, var(--brand), var(--brand-strong)); display: flex; align-items: center; justify-content: center; font-weight: 700; font-size: 13px; flex: none; }
+              .brand-row .mark { width: 28px; height: 28px; border-radius: 8px; background: linear-gradient(135deg, var(--brand), var(--brand-strong)); display: flex; align-items: center; justify-content: center; font-weight: 700; font-size: 13px; flex: none; color: #fff; }
               .brand-row .name { font-weight: 700; font-size: 15px; letter-spacing: -0.01em; }
 
-              .node-pill { margin: 0 8px 16px; padding: 10px 12px; background: var(--surface-1); border: 1px solid var(--border); border-radius: 10px; }
+              .node-pill { margin: 0 8px 16px; padding: 10px 12px; background: var(--surface-1); border: 1px solid var(--border); border-radius: 10px; box-shadow: var(--shadow); }
               .node-pill .label { font-size: 10.5px; color: var(--text-muted); text-transform: uppercase; letter-spacing: .06em; }
               .node-pill .id { font-size: 14px; font-weight: 700; margin-top: 3px; }
               .node-pill .conn { display: flex; align-items: center; gap: 6px; margin-top: 9px; font-size: 12px; color: var(--text-secondary); }
@@ -67,46 +74,46 @@ final class DashboardPage {
 
               nav.tabs { display: flex; flex-direction: column; gap: 2px; }
               nav.tabs button { all: unset; cursor: pointer; padding: 9px 10px; border-radius: 8px; font-size: 13.5px; color: var(--text-secondary); display: flex; align-items: center; gap: 10px; }
-              nav.tabs button:hover { background: rgba(255,255,255,0.05); color: var(--text-primary); }
-              nav.tabs button.active { background: var(--brand-dim); color: var(--text-primary); font-weight: 600; }
-              nav.tabs button svg { width: 16px; height: 16px; flex: none; opacity: .9; }
+              nav.tabs button:hover { background: rgba(38,37,33,0.05); color: var(--text-primary); }
+              nav.tabs button.active { background: var(--brand-dim); color: var(--brand-strong); font-weight: 600; }
+              nav.tabs button svg { width: 16px; height: 16px; flex: none; opacity: .85; }
               .sidebar-foot { margin-top: auto; padding: 10px 8px 2px; font-size: 11px; line-height:1.5; color: var(--text-muted); }
 
               .main { flex: 1; min-width: 0; padding: 26px 34px 60px; max-width: 1180px; }
               .topbar { margin-bottom: 20px; }
-              .topbar h1 { font-size: 20px; margin: 0; letter-spacing: -0.01em; }
+              .topbar h1 { font-size: 20px; margin: 0; letter-spacing: -0.01em; color: var(--text-primary); }
               .topbar .desc { font-size: 12.5px; color: var(--text-muted); margin-top: 3px; }
 
-              .banner { display: none; align-items: center; gap: 10px; background: var(--critical-dim); border: 1px solid rgba(208,59,59,0.4); color: #ff9f9f; padding: 10px 14px; border-radius: 10px; font-size: 13px; font-weight: 600; margin-bottom: 18px; }
+              .banner { display: none; align-items: center; gap: 10px; background: var(--critical-dim); border: 1px solid rgba(185,28,28,0.28); color: var(--critical); padding: 10px 14px; border-radius: 10px; font-size: 13px; font-weight: 600; margin-bottom: 18px; }
               .banner.show { display: flex; }
 
               .kpi-row { display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 12px; margin-bottom: 22px; }
-              .kpi { background: var(--surface-1); border: 1px solid var(--border); border-radius: 12px; padding: 14px 16px; }
+              .kpi { background: var(--surface-1); border: 1px solid var(--border); border-radius: 12px; padding: 14px 16px; box-shadow: var(--shadow); }
               .kpi .k { font-size: 10.5px; text-transform: uppercase; letter-spacing: .06em; color: var(--text-muted); margin-bottom: 9px; }
-              .kpi .v { font-size: 21px; font-weight: 700; letter-spacing: -0.01em; }
+              .kpi .v { font-size: 21px; font-weight: 700; letter-spacing: -0.01em; color: var(--text-primary); }
 
-              .card { background: var(--surface-1); border: 1px solid var(--border); border-radius: 12px; padding: 18px 20px; margin-bottom: 18px; }
+              .card { background: var(--surface-1); border: 1px solid var(--border); border-radius: 12px; padding: 18px 20px; margin-bottom: 18px; box-shadow: var(--shadow); }
               .card h2 { font-size: 12.5px; text-transform: uppercase; letter-spacing: .06em; color: var(--text-muted); margin: 0 0 14px; font-weight: 600; }
               .card .empty { color: var(--text-muted); font-size: 13px; padding: 8px 2px; }
 
               table { width: 100%; border-collapse: collapse; font-size: 13px; }
               thead th { text-align: left; font-size: 10.5px; text-transform: uppercase; letter-spacing: .04em; color: var(--text-muted); font-weight: 600; padding: 0 10px 10px; border-bottom: 1px solid var(--gridline); }
-              tbody td { padding: 10px 10px; border-bottom: 1px solid var(--gridline); vertical-align: middle; }
+              tbody td { padding: 10px 10px; border-bottom: 1px solid var(--gridline); vertical-align: middle; color: var(--text-primary); }
               tbody tr:last-child td { border-bottom: none; }
-              tbody tr:hover td { background: rgba(255,255,255,0.025); }
+              tbody tr:hover td { background: rgba(38,37,33,0.02); }
               .cmd { color: var(--text-secondary); }
-              code.pill { background: rgba(255,255,255,0.07); padding: 2px 7px; border-radius: 5px; font-size: 12px; }
+              code.pill { background: var(--surface-2); padding: 2px 7px; border-radius: 5px; font-size: 12px; color: var(--text-primary); }
 
               .badge { display: inline-flex; align-items: center; gap: 6px; padding: 3px 9px 3px 7px; border-radius: 20px; font-size: 12px; font-weight: 600; white-space: nowrap; }
               .badge .d { width: 6px; height: 6px; border-radius: 50%; flex: none; }
-              .badge.good { background: var(--good-dim); color: #4fd94f; } .badge.good .d { background: var(--good); }
+              .badge.good { background: var(--good-dim); color: var(--good); } .badge.good .d { background: var(--good); }
               .badge.warn { background: var(--warning-dim); color: var(--warning); } .badge.warn .d { background: var(--warning); }
-              .badge.crit { background: var(--critical-dim); color: #ff8f8f; } .badge.crit .d { background: var(--critical); }
-              .badge.muted { background: rgba(255,255,255,0.07); color: var(--text-secondary); } .badge.muted .d { background: var(--text-muted); }
-              .badge.brand { background: var(--brand-dim); color: #8fbdf2; } .badge.brand .d { background: var(--brand); }
+              .badge.crit { background: var(--critical-dim); color: var(--critical); } .badge.crit .d { background: var(--critical); }
+              .badge.muted { background: var(--surface-2); color: var(--text-secondary); } .badge.muted .d { background: var(--text-muted); }
+              .badge.brand { background: var(--brand-dim); color: var(--brand-strong); } .badge.brand .d { background: var(--brand); }
 
               .toolbar { display: flex; gap: 8px; margin-top: 16px; flex-wrap: wrap; border-top: 1px solid var(--gridline); padding-top: 16px; }
-              .toolbar input { background: var(--surface-2); border: 1px solid var(--border); color: var(--text-primary); padding: 8px 10px; border-radius: 8px; font-size: 13px; }
+              .toolbar input { background: var(--page); border: 1px solid var(--border); color: var(--text-primary); padding: 8px 10px; border-radius: 8px; font-size: 13px; }
               .toolbar input::placeholder { color: var(--text-muted); }
               .toolbar input:focus { outline: 2px solid var(--brand); outline-offset: -1px; }
               .toolbar input[name=id] { width: 140px; }
@@ -114,7 +121,7 @@ final class DashboardPage {
               .toolbar input[name=command] { flex: 1; min-width: 220px; }
               button.primary { background: var(--brand); color: white; border: none; padding: 9px 18px; border-radius: 8px; font-size: 13px; font-weight: 600; cursor: pointer; }
               button.primary:hover { background: var(--brand-strong); }
-              button.ghost-danger { background: transparent; border: 1px solid rgba(208,59,59,0.4); color: #ff9f9f; padding: 5px 11px; border-radius: 7px; font-size: 12px; cursor: pointer; }
+              button.ghost-danger { background: transparent; border: 1px solid rgba(185,28,28,0.35); color: var(--critical); padding: 5px 11px; border-radius: 7px; font-size: 12px; cursor: pointer; }
               button.ghost-danger:hover { background: var(--critical-dim); }
 
               .meter { height: 6px; border-radius: 4px; background: var(--gridline); overflow: hidden; display: flex; margin-top: 9px; }
