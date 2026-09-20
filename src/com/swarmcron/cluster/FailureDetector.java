@@ -233,7 +233,7 @@ public final class FailureDetector {
         String senderId = (String) body.get("from");
         long senderIncarnation = ((Number) body.get("incarnation")).longValue();
 
-        ensureKnown(senderId, from, senderIncarnation);
+        observeDirectContact(senderId, from, senderIncarnation);
         gossipEngine.applyIncoming(body.get("updates"));
 
         Map<String, Object> ack = new LinkedHashMap<>();
@@ -253,7 +253,7 @@ public final class FailureDetector {
         String senderId = (String) body.get("from");
         long senderIncarnation = ((Number) body.get("incarnation")).longValue();
 
-        ensureKnown(senderId, from, senderIncarnation);
+        observeDirectContact(senderId, from, senderIncarnation);
         gossipEngine.applyIncoming(body.get("updates"));
 
         if (originatorId.equals(membership.selfId())) {
@@ -280,11 +280,38 @@ public final class FailureDetector {
         scheduler.scheduleOnce(() -> relayRequesters.remove(key), config.pingTimeoutMillis());
     }
 
-    private void ensureKnown(String nodeId, PeerAddress address, long incarnation) {
-        if (nodeId.equals(membership.selfId()) || membership.get(nodeId) != null) {
+    /**
+     * Called on every direct PING/ACK we receive, for the sender. Handles two
+     * cases: a brand-new peer (bootstrap discovery), and a peer we currently
+     * have recorded as SUSPECT/DEAD.
+     *
+     * The second case matters more than it looks: DEAD is sticky by design --
+     * only a strictly higher incarnation can override it (see Membership).
+     * A node that was marked DEAD during an extended partition never learns
+     * this happened (the gossip entry announcing it has a bounded retransmit
+     * budget and will have long since expired by the time reachability
+     * returns), so it never bumps its own incarnation and keeps reporting the
+     * same old one. Direct contact -- an actual PING/ACK just arrived from
+     * them -- is definitive proof of life regardless of what incarnation they
+     * report, so we locally force their recorded incarnation strictly higher
+     * or the correction couldn't win the merge. This can never resurrect a
+     * genuinely dead node: this code only runs when a real message from that
+     * exact node just arrived.
+     */
+    private void observeDirectContact(String nodeId, PeerAddress address, long reportedIncarnation) {
+        if (nodeId.equals(membership.selfId())) {
             return;
         }
-        MemberUpdate update = new MemberUpdate(nodeId, address, NodeState.ALIVE, incarnation);
+        MemberInfo current = membership.get(nodeId);
+        MemberUpdate update;
+        if (current == null) {
+            update = new MemberUpdate(nodeId, address, NodeState.ALIVE, reportedIncarnation);
+        } else if (current.state() == NodeState.ALIVE) {
+            return; // already known and alive; nothing to correct
+        } else {
+            long correctedIncarnation = Math.max(current.incarnation(), reportedIncarnation) + 1;
+            update = new MemberUpdate(nodeId, address, NodeState.ALIVE, correctedIncarnation);
+        }
         if (membership.merge(update)) {
             gossipEngine.enqueue(update);
         }

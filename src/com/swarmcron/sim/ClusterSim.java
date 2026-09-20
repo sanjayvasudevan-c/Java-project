@@ -3,14 +3,17 @@ package com.swarmcron.sim;
 import com.swarmcron.cluster.FailureDetector;
 import com.swarmcron.cluster.NodeState;
 import com.swarmcron.config.JobSpec;
+import com.swarmcron.election.RaftLite;
 import com.swarmcron.hash.ConsistentHashRing;
 import com.swarmcron.net.MessageType;
 import com.swarmcron.net.PeerAddress;
 
 import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 
 /**
  * Entry point for simulation scenarios (run-sim.sh &lt;scenario&gt;). Each
@@ -30,6 +33,7 @@ public final class ClusterSim {
             case "swim-failure-detection" -> swimFailureDetection();
             case "concurrent-job-edits" -> concurrentJobEdits();
             case "ring-rebalance" -> ringRebalance();
+            case "symmetric-partition" -> symmetricPartition();
             default -> {
                 System.out.println("Unknown scenario: " + scenario);
                 yield false;
@@ -213,6 +217,73 @@ public final class ClusterSim {
                 + "change (RingManager listens to Membership, no manual poking) and that only the dead node's "
                 + "share of keys moves -- the whole point of consistent hashing over a plain hash(key) % N, "
                 + "which would have reshuffled nearly everything.");
+        return pass;
+    }
+
+    /** Scenario 3: a 4/3 symmetric partition for 60s. The minority must refuse to act as leader (DEGRADED); the majority keeps going; both converge after healing. */
+    static boolean symmetricPartition() {
+        SimWorld world = new SimWorld(0, 33);
+        world.network().setDefaultLink(new SimNetwork.LinkConfig(5, 20, 0.0));
+        FailureDetector.Config config = new FailureDetector.Config(1000, 300, 3, 5);
+
+        List<PeerAddress> addrs = new ArrayList<>();
+        List<String> ids = List.of("n1", "n2", "n3", "n4", "n5", "n6", "n7");
+        for (int i = 1; i <= 7; i++) {
+            addrs.add(new PeerAddress("sim", i));
+        }
+        List<SimSwarmNode> nodes = new ArrayList<>();
+        for (int i = 0; i < 7; i++) {
+            List<PeerAddress> seeds = new ArrayList<>(addrs);
+            seeds.remove(i);
+            nodes.add(new SimSwarmNode(world, ids.get(i), addrs.get(i), seeds, config));
+        }
+        List<SimSwarmNode> majority = nodes.subList(0, 4);
+        List<SimSwarmNode> minority = nodes.subList(4, 7);
+
+        world.advanceTo(10_000); // bootstrap + first election settles
+
+        for (SimSwarmNode a : majority) {
+            for (SimSwarmNode b : minority) {
+                world.network().blockPair(a.address, b.address);
+            }
+        }
+
+        long partitionStart = world.clock().nowMillis();
+        world.advanceTo(partitionStart + 60_000);
+
+        boolean majorityHasLeader = majority.stream().anyMatch(n -> n.raftLite.role() == RaftLite.Role.LEADER);
+        boolean majorityNotDegraded = majority.stream().noneMatch(n -> n.raftLite.isDegraded());
+        boolean minorityDegraded = minority.stream().allMatch(n -> n.raftLite.isDegraded());
+        boolean minorityNoLeader = minority.stream().noneMatch(n -> n.raftLite.role() == RaftLite.Role.LEADER);
+
+        for (SimSwarmNode a : majority) {
+            for (SimSwarmNode b : minority) {
+                world.network().unblockPair(a.address, b.address);
+            }
+        }
+        world.advanceTo(world.clock().nowMillis() + 15_000);
+
+        Set<String> leaderIds = new HashSet<>();
+        for (SimSwarmNode n : nodes) {
+            if (n.raftLite.leaderId() != null) {
+                leaderIds.add(n.raftLite.leaderId());
+            }
+        }
+        boolean converged = leaderIds.size() == 1;
+        boolean noneDegradedAfterHeal = nodes.stream().noneMatch(n -> n.raftLite.isDegraded());
+
+        boolean pass = majorityHasLeader && majorityNotDegraded && minorityDegraded && minorityNoLeader
+                && converged && noneDegradedAfterHeal;
+
+        System.out.println("scenario symmetric-partition: majority(4) has leader=" + majorityHasLeader
+                + ", majority not degraded=" + majorityNotDegraded + ", minority(3) all degraded=" + minorityDegraded
+                + ", minority has no leader=" + minorityNoLeader + ", converged after heal=" + converged
+                + " (leader=" + leaderIds + "), none degraded after heal=" + noneDegradedAfterHeal);
+        System.out.println("Proves the anti-split-brain guarantee: during a 4/3 partition of a 7-node cluster, "
+                + "the majority side keeps (or elects) a leader and operates normally, while the minority side "
+                + "correctly recognizes it cannot see a majority of the known cluster, marks itself DEGRADED, "
+                + "and never self-appoints a leader -- and once the partition heals, every node converges back "
+                + "on a single agreed leader with no manual intervention.");
         return pass;
     }
 }

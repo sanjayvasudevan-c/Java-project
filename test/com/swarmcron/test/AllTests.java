@@ -26,6 +26,8 @@ public final class AllTests {
         ok &= RingManagerSimTest.run();
         ok &= CronExpressionTest.run();
         ok &= TimerWheelTest.run();
+        ok &= RaftLiteTest.run();
+        ok &= SymmetricPartitionSimTest.run();
 
         if (ok) {
             System.out.println("ALL TESTS PASSED");

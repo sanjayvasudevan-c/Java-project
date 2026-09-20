@@ -4,6 +4,8 @@ import com.swarmcron.clock.HybridClock;
 import com.swarmcron.cluster.FailureDetector;
 import com.swarmcron.cluster.GossipEngine;
 import com.swarmcron.cluster.Membership;
+import com.swarmcron.election.InMemoryTermStore;
+import com.swarmcron.election.RaftLite;
 import com.swarmcron.hash.RingManager;
 import com.swarmcron.net.PeerAddress;
 import com.swarmcron.state.AntiEntropySync;
@@ -14,9 +16,9 @@ import java.util.function.UnaryOperator;
 
 /**
  * Wires the real production node components (Membership, GossipEngine,
- * FailureDetector, JobRegistry, AntiEntropySync, RingManager) to simulated
- * Transport/SyncChannel/Scheduler/Clock from one SimWorld. This is not a
- * stand-in for those components -- it is the exact same classes Main
+ * FailureDetector, RaftLite, JobRegistry, AntiEntropySync, RingManager) to
+ * simulated Transport/SyncChannel/Scheduler/Clock from one SimWorld. This is
+ * not a stand-in for those components -- it is the exact same classes Main
  * constructs, just given Sim* dependencies instead of Udp/Tcp/System ones,
  * so a scenario proves actual production behavior rather than a simulated
  * approximation of it.
@@ -31,6 +33,7 @@ public final class SimSwarmNode {
     public final Membership membership;
     public final GossipEngine gossipEngine;
     public final FailureDetector failureDetector;
+    public final RaftLite raftLite;
     public final JobRegistry jobRegistry;
     public final AntiEntropySync antiEntropySync;
     public final RingManager ringManager;
@@ -51,8 +54,20 @@ public final class SimSwarmNode {
         this.transport = new SimTransport(address, world.network());
         this.failureDetector = new FailureDetector(
                 membership, transport, gossipEngine, world.scheduler(), world.clock(), config, seeds, randomSeed);
-        transport.start(failureDetector::onMessage);
+        this.raftLite = new RaftLite(membership, transport, world.scheduler(), new InMemoryTermStore(), randomSeed + 2);
+
+        // One transport, one inbound stream: dispatch by message type to whichever
+        // component owns it -- same pattern as Main, so a scenario exercises the
+        // exact same dispatch logic production runs.
+        transport.start((from, type, payload) -> {
+            switch (type) {
+                case PING, ACK, PING_REQ -> failureDetector.onMessage(from, type, payload);
+                case REQUEST_VOTE, VOTE, HEARTBEAT -> raftLite.onMessage(from, type, payload);
+                default -> { /* not ours */ }
+            }
+        });
         failureDetector.start();
+        raftLite.start();
 
         HybridClock hybridClock = new HybridClock(world.clock());
         this.jobRegistry = new JobRegistry(nodeId, hybridClock);

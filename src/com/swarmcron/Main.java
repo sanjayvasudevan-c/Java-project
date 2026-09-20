@@ -11,7 +11,11 @@ import com.swarmcron.config.ConfigParser;
 import com.swarmcron.config.JobSpec;
 import com.swarmcron.config.JobsFile;
 import com.swarmcron.config.NodeConfig;
+import com.swarmcron.election.FileTermStore;
+import com.swarmcron.election.RaftLite;
+import com.swarmcron.election.TermStore;
 import com.swarmcron.hash.RingManager;
+import com.swarmcron.net.MessageType;
 import com.swarmcron.net.PeerAddress;
 import com.swarmcron.net.SyncChannel;
 import com.swarmcron.net.TcpSyncChannel;
@@ -30,11 +34,12 @@ import java.util.concurrent.CountDownLatch;
 
 /**
  * Entry point. Parses CLI args, loads config, and brings up the gossip layer
- * (UdpTransport + Membership + GossipEngine + FailureDetector), the job
- * registry's anti-entropy sync layer (TcpSyncChannel + JobRegistry +
- * AntiEntropySync), and the consistent hash ring (RingManager, kept in sync
- * with Membership automatically). Scheduling and execution (M6-M8) and the
- * HTTP dashboard (M9) attach here in later milestones.
+ * (UdpTransport + Membership + GossipEngine + FailureDetector), Raft-lite
+ * election (RaftLite, sharing the same UdpTransport via message-type
+ * dispatch), the job registry's anti-entropy sync layer (TcpSyncChannel +
+ * JobRegistry + AntiEntropySync), and the consistent hash ring (RingManager,
+ * kept in sync with Membership automatically). Scheduling and execution
+ * (M8) and the HTTP dashboard (M9) attach here in later milestones.
  */
 public final class Main {
 
@@ -71,8 +76,21 @@ public final class Main {
         FailureDetector failureDetector = new FailureDetector(
                 membership, transport, gossipEngine, scheduler, clock, fdConfig, seedAddresses,
                 new SecureRandom().nextLong());
-        transport.start(failureDetector::onMessage);
+
+        TermStore termStore = new FileTermStore(Path.of(config.dataDir(), "raft-state.conf"));
+        RaftLite raftLite = new RaftLite(membership, transport, scheduler, termStore, new SecureRandom().nextLong());
+
+        // One transport, one inbound stream: dispatch by message type to whichever
+        // component owns it (SWIM gossip vs. Raft election/heartbeats).
+        transport.start((from, type, payload) -> {
+            switch (type) {
+                case PING, ACK, PING_REQ -> failureDetector.onMessage(from, type, payload);
+                case REQUEST_VOTE, VOTE, HEARTBEAT -> raftLite.onMessage(from, type, payload);
+                default -> Log.warn("main", "no handler for message type %s from %s", type, from);
+            }
+        });
         failureDetector.start();
+        raftLite.start();
 
         HybridClock hybridClock = new HybridClock(clock);
         JobRegistry jobRegistry = new JobRegistry(config.nodeId(), hybridClock);
@@ -85,6 +103,10 @@ public final class Main {
 
         RingManager ringManager = new RingManager(membership, config.virtualNodes());
         ringManager.start();
+
+        raftLite.addListener((newRole, term, leaderId) ->
+                Log.info("raft", "[%s] role=%s term=%d leaderId=%s degraded=%s",
+                        config.nodeId(), newRole, term, leaderId, raftLite.isDegraded()));
 
         // TODO(M8): jobs.json should only seed the registry on a truly first
         // boot (once the WAL can tell us that); for now it re-applies every
