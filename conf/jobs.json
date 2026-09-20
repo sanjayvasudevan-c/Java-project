@@ -1,0 +1,24 @@
+[
+  {
+    "id": "heartbeat-log",
+    "schedule": "*/5 * * * * *",
+    "command": ["/bin/echo", "swarmcron heartbeat"],
+    "workingDir": ".",
+    "timeoutSeconds": 10,
+    "maxRetries": 2,
+    "backoffMillis": 5000,
+    "overlapPolicy": "SKIP",
+    "enabled": true
+  },
+  {
+    "id": "nightly-backup",
+    "schedule": "0 2 * * *",
+    "command": ["/usr/bin/rsync", "-a", "/srv", "/backup"],
+    "workingDir": "/",
+    "timeoutSeconds": 3600,
+    "maxRetries": 2,
+    "backoffMillis": 30000,
+    "overlapPolicy": "SKIP",
+    "enabled": true
+  }
+]
