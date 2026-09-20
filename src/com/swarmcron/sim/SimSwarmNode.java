@@ -4,6 +4,7 @@ import com.swarmcron.clock.HybridClock;
 import com.swarmcron.cluster.FailureDetector;
 import com.swarmcron.cluster.GossipEngine;
 import com.swarmcron.cluster.Membership;
+import com.swarmcron.hash.RingManager;
 import com.swarmcron.net.PeerAddress;
 import com.swarmcron.state.AntiEntropySync;
 import com.swarmcron.state.JobRegistry;
@@ -13,16 +14,17 @@ import java.util.function.UnaryOperator;
 
 /**
  * Wires the real production node components (Membership, GossipEngine,
- * FailureDetector, JobRegistry, AntiEntropySync) to simulated Transport/
- * SyncChannel/Scheduler/Clock from one SimWorld. This is not a stand-in for
- * those components -- it is the exact same classes Main constructs, just
- * given Sim* dependencies instead of Udp/Tcp/System ones, so a scenario
- * proves actual production behavior rather than a simulated approximation
- * of it.
+ * FailureDetector, JobRegistry, AntiEntropySync, RingManager) to simulated
+ * Transport/SyncChannel/Scheduler/Clock from one SimWorld. This is not a
+ * stand-in for those components -- it is the exact same classes Main
+ * constructs, just given Sim* dependencies instead of Udp/Tcp/System ones,
+ * so a scenario proves actual production behavior rather than a simulated
+ * approximation of it.
  */
 public final class SimSwarmNode {
 
     private static final long DEFAULT_ANTI_ENTROPY_INTERVAL_MILLIS = 30_000;
+    private static final int DEFAULT_VIRTUAL_NODES_PER_NODE = 128;
 
     public final String nodeId;
     public final PeerAddress address;
@@ -31,16 +33,17 @@ public final class SimSwarmNode {
     public final FailureDetector failureDetector;
     public final JobRegistry jobRegistry;
     public final AntiEntropySync antiEntropySync;
+    public final RingManager ringManager;
     private final SimTransport transport;
     private final SimSyncChannel syncChannel;
 
     public SimSwarmNode(SimWorld world, String nodeId, PeerAddress address, List<PeerAddress> seeds, FailureDetector.Config config) {
-        this(world, nodeId, address, seeds, config, nodeId.hashCode(), DEFAULT_ANTI_ENTROPY_INTERVAL_MILLIS);
+        this(world, nodeId, address, seeds, config, nodeId.hashCode(), DEFAULT_ANTI_ENTROPY_INTERVAL_MILLIS, DEFAULT_VIRTUAL_NODES_PER_NODE);
     }
 
-    /** Overload taking an explicit random seed and anti-entropy interval, for scenarios that need full control over timing. */
+    /** Overload taking an explicit random seed, anti-entropy interval, and virtual node count, for scenarios that need full control over timing/ring shape. */
     public SimSwarmNode(SimWorld world, String nodeId, PeerAddress address, List<PeerAddress> seeds,
-                         FailureDetector.Config config, long randomSeed, long antiEntropyIntervalMillis) {
+                         FailureDetector.Config config, long randomSeed, long antiEntropyIntervalMillis, int virtualNodesPerNode) {
         this.nodeId = nodeId;
         this.address = address;
         this.membership = new Membership(nodeId, address, world.clock());
@@ -58,6 +61,9 @@ public final class SimSwarmNode {
                 membership, jobRegistry, syncChannel, world.scheduler(), antiEntropyIntervalMillis, randomSeed + 1,
                 UnaryOperator.identity());
         antiEntropySync.start();
+
+        this.ringManager = new RingManager(membership, virtualNodesPerNode);
+        ringManager.start();
     }
 
     /** Simulates a crash: stops sending/receiving on both channels, but any already-scheduled timers on other nodes keep firing normally. */

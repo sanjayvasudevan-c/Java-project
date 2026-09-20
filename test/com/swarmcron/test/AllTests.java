@@ -22,6 +22,8 @@ public final class AllTests {
         ok &= JobRegistryTest.run();
         ok &= TcpSyncChannelTest.run();
         ok &= JobRegistrySimTest.run();
+        ok &= HashRingTest.run();
+        ok &= RingManagerSimTest.run();
 
         if (ok) {
             System.out.println("ALL TESTS PASSED");

@@ -38,8 +38,8 @@ final class JobRegistrySimTest {
         PeerAddress b = new PeerAddress("sim", 2);
         long antiEntropyIntervalMillis = 5000;
 
-        SimSwarmNode alpha = new SimSwarmNode(world, "alpha", a, List.of(b), config(), "alpha".hashCode(), antiEntropyIntervalMillis);
-        SimSwarmNode beta = new SimSwarmNode(world, "beta", b, List.of(a), config(), "beta".hashCode(), antiEntropyIntervalMillis);
+        SimSwarmNode alpha = new SimSwarmNode(world, "alpha", a, List.of(b), config(), "alpha".hashCode(), antiEntropyIntervalMillis, 128);
+        SimSwarmNode beta = new SimSwarmNode(world, "beta", b, List.of(a), config(), "beta".hashCode(), antiEntropyIntervalMillis, 128);
 
         world.advanceTo(2000);
         alpha.jobRegistry.put(spec("0 2 * * *", JobSpec.OVERLAP_SKIP));
@@ -58,8 +58,8 @@ final class JobRegistrySimTest {
         PeerAddress b = new PeerAddress("sim", 2);
         long antiEntropyIntervalMillis = 5000;
 
-        SimSwarmNode alpha = new SimSwarmNode(world, "alpha", a, List.of(b), config(), "alpha".hashCode(), antiEntropyIntervalMillis);
-        SimSwarmNode beta = new SimSwarmNode(world, "beta", b, List.of(a), config(), "beta".hashCode(), antiEntropyIntervalMillis);
+        SimSwarmNode alpha = new SimSwarmNode(world, "alpha", a, List.of(b), config(), "alpha".hashCode(), antiEntropyIntervalMillis, 128);
+        SimSwarmNode beta = new SimSwarmNode(world, "beta", b, List.of(a), config(), "beta".hashCode(), antiEntropyIntervalMillis, 128);
 
         world.advanceTo(5000);
         world.network().blockPair(a, b);

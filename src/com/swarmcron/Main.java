@@ -11,6 +11,7 @@ import com.swarmcron.config.ConfigParser;
 import com.swarmcron.config.JobSpec;
 import com.swarmcron.config.JobsFile;
 import com.swarmcron.config.NodeConfig;
+import com.swarmcron.hash.RingManager;
 import com.swarmcron.net.PeerAddress;
 import com.swarmcron.net.SyncChannel;
 import com.swarmcron.net.TcpSyncChannel;
@@ -29,10 +30,11 @@ import java.util.concurrent.CountDownLatch;
 
 /**
  * Entry point. Parses CLI args, loads config, and brings up the gossip layer
- * (UdpTransport + Membership + GossipEngine + FailureDetector) and the job
+ * (UdpTransport + Membership + GossipEngine + FailureDetector), the job
  * registry's anti-entropy sync layer (TcpSyncChannel + JobRegistry +
- * AntiEntropySync). Scheduling and execution (M6-M8) and the HTTP dashboard
- * (M9) attach here in later milestones.
+ * AntiEntropySync), and the consistent hash ring (RingManager, kept in sync
+ * with Membership automatically). Scheduling and execution (M6-M8) and the
+ * HTTP dashboard (M9) attach here in later milestones.
  */
 public final class Main {
 
@@ -80,6 +82,9 @@ public final class Main {
                 new SecureRandom().nextLong(),
                 gossipAddr -> new PeerAddress(gossipAddr.host(), gossipAddr.port() + 1));
         antiEntropySync.start();
+
+        RingManager ringManager = new RingManager(membership, config.virtualNodes());
+        ringManager.start();
 
         // TODO(M8): jobs.json should only seed the registry on a truly first
         // boot (once the WAL can tell us that); for now it re-applies every

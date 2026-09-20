@@ -3,11 +3,14 @@ package com.swarmcron.sim;
 import com.swarmcron.cluster.FailureDetector;
 import com.swarmcron.cluster.NodeState;
 import com.swarmcron.config.JobSpec;
+import com.swarmcron.hash.ConsistentHashRing;
 import com.swarmcron.net.MessageType;
 import com.swarmcron.net.PeerAddress;
 
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 
 /**
  * Entry point for simulation scenarios (run-sim.sh &lt;scenario&gt;). Each
@@ -26,6 +29,7 @@ public final class ClusterSim {
             case "ping-pong" -> pingPong();
             case "swim-failure-detection" -> swimFailureDetection();
             case "concurrent-job-edits" -> concurrentJobEdits();
+            case "ring-rebalance" -> ringRebalance();
             default -> {
                 System.out.println("Unknown scenario: " + scenario);
                 yield false;
@@ -120,8 +124,8 @@ public final class ClusterSim {
         FailureDetector.Config config = new FailureDetector.Config(1000, 300, 3, 5);
         long antiEntropyIntervalMillis = 5000;
 
-        SimSwarmNode alpha = new SimSwarmNode(world, "alpha", addrA, List.of(addrB), config, "alpha".hashCode(), antiEntropyIntervalMillis);
-        SimSwarmNode beta = new SimSwarmNode(world, "beta", addrB, List.of(addrA), config, "beta".hashCode(), antiEntropyIntervalMillis);
+        SimSwarmNode alpha = new SimSwarmNode(world, "alpha", addrA, List.of(addrB), config, "alpha".hashCode(), antiEntropyIntervalMillis, 128);
+        SimSwarmNode beta = new SimSwarmNode(world, "beta", addrB, List.of(addrA), config, "beta".hashCode(), antiEntropyIntervalMillis, 128);
 
         world.advanceTo(5000); // let them discover each other
 
@@ -152,6 +156,63 @@ public final class ClusterSim {
                 + "job, diverge while the partition holds, and converge to the identical deterministically "
                 + "chosen spec once anti-entropy sync resumes after the partition heals -- no coordinator, "
                 + "no manual conflict resolution, and every node computes the same winner independently.");
+        return pass;
+    }
+
+    /** M5 scenario: a real SWIM death automatically shrinks the ring, and only the dead node's keys move. */
+    static boolean ringRebalance() {
+        SimWorld world = new SimWorld(0, 17);
+        world.network().setDefaultLink(new SimNetwork.LinkConfig(5, 20, 0.0));
+        FailureDetector.Config config = new FailureDetector.Config(1000, 300, 3, 5);
+
+        PeerAddress addrA = new PeerAddress("sim", 1);
+        PeerAddress addrB = new PeerAddress("sim", 2);
+        PeerAddress addrC = new PeerAddress("sim", 3);
+        PeerAddress addrD = new PeerAddress("sim", 4);
+        PeerAddress addrE = new PeerAddress("sim", 5);
+
+        SimSwarmNode alpha = new SimSwarmNode(world, "alpha", addrA, List.of(addrB, addrC, addrD, addrE), config);
+        SimSwarmNode beta = new SimSwarmNode(world, "beta", addrB, List.of(addrA, addrC, addrD, addrE), config);
+        SimSwarmNode gamma = new SimSwarmNode(world, "gamma", addrC, List.of(addrA, addrB, addrD, addrE), config);
+        SimSwarmNode delta = new SimSwarmNode(world, "delta", addrD, List.of(addrA, addrB, addrC, addrE), config);
+        SimSwarmNode epsilon = new SimSwarmNode(world, "epsilon", addrE, List.of(addrA, addrB, addrC, addrD), config);
+
+        world.advanceTo(10_000);
+        boolean fullyFormed = alpha.ringManager.currentRing().physicalNodeCount() == 5;
+
+        ConsistentHashRing ringBefore = alpha.ringManager.currentRing();
+        Map<String, String> ownerBefore = new HashMap<>();
+        for (int i = 0; i < 1000; i++) {
+            ownerBefore.put("job-" + i, ringBefore.owner("job-" + i));
+        }
+
+        long killAt = world.clock().nowMillis();
+        epsilon.kill();
+        world.advanceTo(killAt + 8000);
+
+        ConsistentHashRing ringAfter = alpha.ringManager.currentRing();
+        boolean shrank = ringAfter.physicalNodeCount() == 4;
+
+        int reassigned = 0;
+        boolean onlyDeadNodesKeysMoved = true;
+        for (Map.Entry<String, String> e : ownerBefore.entrySet()) {
+            String now = ringAfter.owner(e.getKey());
+            if (!e.getValue().equals(now)) {
+                reassigned++;
+                if (!e.getValue().equals("epsilon")) {
+                    onlyDeadNodesKeysMoved = false;
+                }
+            }
+        }
+        boolean pass = fullyFormed && shrank && onlyDeadNodesKeysMoved && reassigned > 0;
+
+        System.out.println("scenario ring-rebalance: fully formed (5 nodes)=" + fullyFormed
+                + ", ring shrank to 4 after kill=" + shrank + ", only epsilon's keys moved=" + onlyDeadNodesKeysMoved
+                + ", reassigned " + reassigned + "/1000 sampled keys");
+        System.out.println("Proves the consistent-hash ring rebuilds automatically on a real SWIM membership "
+                + "change (RingManager listens to Membership, no manual poking) and that only the dead node's "
+                + "share of keys moves -- the whole point of consistent hashing over a plain hash(key) % N, "
+                + "which would have reshuffled nearly everything.");
         return pass;
     }
 }
