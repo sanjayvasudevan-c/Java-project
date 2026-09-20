@@ -17,6 +17,16 @@ node serves a live dashboard over plain HTTP + Server-Sent Events.
 For the distributed-systems design, delivery-semantics guarantees, and
 known limitations, see **[DESIGN.md](DESIGN.md)**.
 
+![SwarmCron dashboard](docs/dashboard.png)
+
+The dashboard (`src/com/swarmcron/http/DashboardPage.java`) is a single
+dependency-free HTML/CSS/JS page served by each node — no build step, no
+npm. It's a macOS-style glass window (traffic-light controls, blurred
+backdrop) that stays live via the `/events` SSE stream: KPI numbers
+ease-tween on change, new rows in the node/job/run tables glow in instead
+of snapping into place, and the run-duration sparkline redraws itself with
+a stroke draw-in animation whenever new run data actually arrives.
+
 ## Quickstart
 
 ```bash
